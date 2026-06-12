@@ -263,37 +263,37 @@ export default function HomeTab() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={[styles.greeting, { color: accent }]}>
-            {greeting()}, {getPersonLabel(identity)}
-          </Text>
+          <View style={styles.headerRow}>
+            <Text style={[styles.greeting, { color: accent }]}>
+              {greeting()}, {getPersonLabel(identity)}
+            </Text>
+            {loading && <ActivityIndicator color={accent} size="small" style={{ marginLeft: 8 }} />}
+          </View>
           <Text style={styles.dateText}>{formatDate(today)}</Text>
         </View>
 
-        {loading ? (
-          <ActivityIndicator color={accent} style={{ marginTop: 40 }} />
-        ) : (
-          <>
-            {/* 3-column grid */}
-            <View style={styles.grid}>
-              {PERSONS.map(p => (
-                <PersonColumn
-                  key={p.key}
-                  person={p.label}
-                  color={p.color}
-                  lightColor={p.light}
-                  events={events[p.key] || []}
-                  tasks={tasksFor(p.key)}
-                  meals={meals.filter(m => m.person === p.key)}
-                />
-              ))}
-              {/* Amber time indicator across all columns (today only) */}
-              {isToday && (
-                <View
-                  pointerEvents="none"
-                  style={[
-                    styles.timeIndicator,
-                    { top: `${(timeIndicatorFraction() * 100).toFixed(2)}%` },
-                  ]}
+        <>
+          {/* 3-column grid */}
+          <View style={styles.grid}>
+            {PERSONS.map(p => (
+              <PersonColumn
+                key={p.key}
+                person={p.label}
+                color={p.color}
+                lightColor={p.light}
+                events={events[p.key] || []}
+                tasks={tasksFor(p.key)}
+                meals={meals.filter(m => m.person === p.key)}
+              />
+            ))}
+            {/* Amber time indicator across all columns (today only) */}
+            {isToday && (
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.timeIndicator,
+                  { top: `${(timeIndicatorFraction() * 100).toFixed(2)}%` },
+                ]}
                 />
               )}
             </View>
@@ -301,7 +301,6 @@ export default function HomeTab() {
             {/* Rewards strip */}
             <RewardsStrip rewards={rewards} />
           </>
-        )}
       </ScrollView>
 
       {/* Call Home — fixed at bottom above tab bar */}
@@ -331,6 +330,10 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   greeting: {
     fontFamily: FONTS.headingBold,
