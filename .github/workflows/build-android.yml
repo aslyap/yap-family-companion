@@ -14,7 +14,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -22,27 +21,36 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Setup Android SDK
+      - name: Setup Android SDK + NDK
         uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: sdkmanager "ndk;27.1.12297006" --sdk_root=$ANDROID_SDK_ROOT
+
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
 
       - name: Install dependencies
         run: npm install
 
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
       - name: Build APK (local — no cloud quota used)
         env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
-        run: eas build --platform android --profile preview --local --output ./yap-family-companion.apk
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: eas build --platform android --profile preview --local --non-interactive
+
+      - name: Find APK
+        id: find_apk
+        run: |
+          APK=$(find . -name "*.apk" | head -1)
+          echo "apk_path=$APK" >> $GITHUB_OUTPUT
+          echo "Found APK: $APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: yap-family-companion-apk
-          path: ./yap-family-companion.apk
+          path: ${{ steps.find_apk.outputs.apk_path }}
           retention-days: 30
