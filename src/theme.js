@@ -8,7 +8,7 @@ export const COLORS = {
   kath: '#C87C6B',
   kathLight: '#F2E8E4',
   adrian: '#5A80A0',
-  adrianLight: '#E4EDF5',
+  adrianLight: '#E8EEF4',
   family: '#B5A895',
   familyLight: '#F0EDE8',
   background: '#FFFFFF',

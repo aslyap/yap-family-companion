@@ -1,0 +1,1 @@
+export { FONTS } from '../theme';

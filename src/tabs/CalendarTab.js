@@ -1,8 +1,10 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { useIdentity } from '../contexts/IdentityContext';
 import { COLORS, FONTS, getAccentColor } from '../theme';
 
-export default function CalendarTab({ identity }) {
+export default function CalendarTab() {
+  const { identity } = useIdentity();
   const accent = getAccentColor(identity);
   return (
     <View style={styles.container}>
