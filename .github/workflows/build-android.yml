@@ -7,6 +7,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk /opt/ghc /usr/local/share/boost
+          sudo apt-get clean
+          df -h
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -24,35 +30,53 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install NDK
+        run: sdkmanager "ndk;27.1.12297006" --sdk_root=$ANDROID_SDK_ROOT
+
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
       - name: Install dependencies
         run: npm install
 
-      - name: Expo prebuild (generates android/ native project)
+      - name: Expo prebuild
         run: npx expo prebuild --platform android --clean --no-install
         env:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
 
+      - name: Patch build.gradle — fix duplicate .so conflicts
+        run: |
+          python3 - <<'EOF'
+          import re
+          path = "android/app/build.gradle"
+          patch = """
+              packagingOptions {
+                  pickFirst "**/libc++_shared.so"
+                  pickFirst "**/libfbjni.so"
+                  pickFirst "**/libwebrtc.so"
+                  pickFirst "**/libjsc.so"
+              }
+          """
+          content = open(path).read()
+          if "pickFirst" not in content:
+              content = content.replace("android {", "android {" + patch, 1)
+              open(path, "w").write(content)
+              print("Patched build.gradle")
+          else:
+              print("Already patched")
+          EOF
+
       - name: Build debug APK with Gradle
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee ../gradle-build.log
-          exit ${PIPESTATUS[0]}
+          ./gradlew assembleDebug --no-daemon
         env:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
 
-      - name: Upload full Gradle log (always)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gradle-build-log
-          path: gradle-build.log
-          retention-days: 7
-
       - name: Upload APK
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: yap-family-companion-apk
