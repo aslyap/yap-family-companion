@@ -58,7 +58,15 @@
             "targetSdkVersion": 35,
             "buildToolsVersion": "36.0.0",
             "minSdkVersion": 24,
-            "kotlinVersion": "2.1.20"
+            "kotlinVersion": "2.1.20",
+            "packagingOptions": {
+              "pickFirst": [
+                "**/libc++_shared.so",
+                "**/libfbjni.so",
+                "**/libwebrtc.so",
+                "**/libjsc.so"
+              ]
+            }
           }
         }
       ],
