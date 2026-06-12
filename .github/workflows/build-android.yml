@@ -21,36 +21,30 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Setup Android SDK + NDK
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-
-      - name: Install NDK
-        run: sdkmanager "ndk;27.1.12297006" --sdk_root=$ANDROID_SDK_ROOT
-
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
 
       - name: Install dependencies
         run: npm install
 
-      - name: Build APK (local — no cloud quota used)
+      - name: Expo prebuild (generates android/ native project)
+        run: npx expo prebuild --platform android --clean --no-install
         env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
-        run: eas build --platform android --profile preview --local --non-interactive
 
-      - name: Find APK
-        id: find_apk
+      - name: Build debug APK with Gradle
         run: |
-          APK=$(find . -name "*.apk" | head -1)
-          echo "apk_path=$APK" >> $GITHUB_OUTPUT
-          echo "Found APK: $APK"
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: yap-family-companion-apk
-          path: ${{ steps.find_apk.outputs.apk_path }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
