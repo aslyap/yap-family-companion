@@ -54,10 +54,11 @@ export default function TabNavigator() {
             borderBottomWidth: 1,
             elevation: 0,
             shadowOpacity: 0,
+            height: 44,
           },
           headerTitleStyle: {
             fontFamily: 'JosefinSans_700Bold',
-            fontSize: 18,
+            fontSize: 20,
             color: COLORS.text,
             letterSpacing: 0.5,
           },

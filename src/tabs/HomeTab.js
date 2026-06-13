@@ -253,7 +253,7 @@ export default function HomeTab() {
   const tiTop = isToday ? getTimeIndicatorTop() : -1;
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
+    <View style={styles.screen}>
 
       {/* ── Date nav ── */}
       <View style={styles.dateNav}>
@@ -321,7 +321,9 @@ export default function HomeTab() {
 
           {/* Amber time indicator */}
           {tiTop >= 0 && (
-            <View pointerEvents="none" style={[styles.timeIndicator, { top: tiTop }]} />
+            <View pointerEvents="none" style={[styles.timeIndicator, { top: tiTop }]}>
+              <View style={styles.timeIndicatorDot} />
+            </View>
           )}
         </View>
 
@@ -392,31 +394,34 @@ export default function HomeTab() {
           ))}
         </View>
 
-        {/* ── Rewards section ── */}
-        <View style={styles.sectionBorder}>
-          <View style={styles.rewardsHeader}>
+        {/* ── Rewards + Video Call side by side ── */}
+        <View style={[styles.sectionBorder, styles.rewardsCallRow]}>
+          {/* Rewards */}
+          <View style={styles.rewardsPane}>
             <Text style={styles.sectionLabel}>REWARDS ›</Text>
-          </View>
-          {['maddie', 'alex'].map(person => {
-            const r = rewards[person];
-            const color = person === 'maddie' ? COLORS.maddie : COLORS.alex;
-            const pts = r?.points_balance ?? 0;
-            return (
-              <View key={person} style={styles.rewardRow}>
-                <Text style={[styles.rewardName, { color }]}>
-                  {person === 'maddie' ? 'Maddie' : 'Alex'}
-                </Text>
-                <View style={styles.rewardBarTrack}>
-                  <View style={[styles.rewardBarFill, { backgroundColor: color, width: `${Math.min(100, pts)}%` }]} />
+            {['maddie', 'alex'].map(person => {
+              const r = rewards[person];
+              const color = person === 'maddie' ? COLORS.maddie : COLORS.alex;
+              const pts = r?.points_balance ?? 0;
+              return (
+                <View key={person} style={styles.rewardRow}>
+                  <Text style={[styles.rewardName, { color }]}>
+                    {person === 'maddie' ? 'Maddie' : 'Alex'}
+                  </Text>
+                  <View style={styles.rewardBarTrack}>
+                    <View style={[styles.rewardBarFill, { backgroundColor: color, width: `${Math.min(100, pts)}%` }]} />
+                  </View>
+                  <Text style={[styles.rewardPts, { color }]}>{pts}/100</Text>
                 </View>
-                <Text style={[styles.rewardPts, { color }]}>{pts}/100</Text>
-              </View>
-            );
-          })}
-        </View>
+              );
+            })}
+          </View>
 
-        {/* ── Video Call section ── */}
-        <CallHomeSection identity={identity} />
+          {/* Video Call */}
+          <View style={styles.callPane}>
+            <CallHomeSection identity={identity} />
+          </View>
+        </View>
 
       </ScrollView>
     </View>
@@ -492,7 +497,11 @@ const styles = StyleSheet.create({
   },
   halfHourLine: {
     position: 'absolute', left: 0, right: 0,
-    height: 1, backgroundColor: COLORS.border, opacity: 0.35,
+    height: 0,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    borderStyle: 'dashed',
+    opacity: 0.5,
   },
   hourLabel: {
     fontFamily: FONTS.body,
@@ -513,8 +522,14 @@ const styles = StyleSheet.create({
   eventTimeText: { fontFamily: FONTS.body, fontSize: 9, lineHeight: 12 },
   eventTitleText: { fontFamily: FONTS.bodyMedium, fontSize: 10, lineHeight: 13 },
   timeIndicator: {
-    position: 'absolute', left: 0, right: 0,
+    position: 'absolute', left: TIMELINE_W, right: 0,
     height: 2, backgroundColor: COLORS.timeIndicator, zIndex: 10,
+    flexDirection: 'row', alignItems: 'center',
+  },
+  timeIndicatorDot: {
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: COLORS.timeIndicator,
+    marginLeft: -4,
   },
 
   // Section chrome
@@ -618,47 +633,59 @@ const styles = StyleSheet.create({
   },
   mealDinnerCell: { flex: 1 },
 
+  // Rewards + Call side-by-side row
+  rewardsCallRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  rewardsPane: {
+    flex: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRightWidth: 1,
+    borderRightColor: COLORS.border,
+  },
+  callPane: {
+    flex: 1,
+  },
+
   // Rewards
-  rewardsHeader: { paddingHorizontal: 10, paddingVertical: 8 },
   rewardRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingBottom: 10,
-    gap: 8,
+    paddingBottom: 8,
+    gap: 6,
   },
-  rewardName: { fontFamily: FONTS.bodyMedium, fontSize: 12, width: 46 },
+  rewardName: { fontFamily: FONTS.bodyMedium, fontSize: 11, width: 40 },
   rewardBarTrack: {
     flex: 1,
-    height: 8,
+    height: 7,
     backgroundColor: COLORS.border,
     borderRadius: 4,
     overflow: 'hidden',
   },
   rewardBarFill: { height: '100%', borderRadius: 4 },
-  rewardPts: { fontFamily: FONTS.body, fontSize: 11, width: 52, textAlign: 'right' },
+  rewardPts: { fontFamily: FONTS.body, fontSize: 10, width: 44, textAlign: 'right' },
 
   // Video Call section
   videoCallSection: {
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 12,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 10,
   },
   callRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
   callBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    minHeight: 52,
-    gap: 8,
-    marginTop: 10,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    minHeight: 44,
+    gap: 6,
+    marginTop: 6,
   },
   callCancelBtn: { backgroundColor: '#dc2626', paddingHorizontal: 16, flex: 0, marginTop: 0 },
-  callBtnIcon: { fontSize: 20 },
-  callBtnText: { fontFamily: FONTS.headingBold, fontSize: 16, color: '#fff', letterSpacing: 0.3 },
+  callBtnIcon: { fontSize: 16 },
+  callBtnText: { fontFamily: FONTS.headingBold, fontSize: 13, color: '#fff', letterSpacing: 0.3 },
 });
