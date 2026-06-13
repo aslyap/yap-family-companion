@@ -1,7 +1,7 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, ActivityIndicator,
-  StyleSheet, RefreshControl, Image,
+  StyleSheet, RefreshControl, Image, Platform, StatusBar,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStreamVideoClient } from '@stream-io/video-react-native-sdk';
@@ -14,12 +14,12 @@ import { fetchRewards } from '../services/rewardsService';
 
 // ─── layout constants ─────────────────────────────────────────────────────────
 
-const HOUR_HEIGHT = 56;
+const HOUR_HEIGHT = 26;
 const TIMELINE_W  = 38;
 const GRID_START  = 6;   // 6am
 const GRID_END    = 20;  // 8pm
 const GRID_HOURS  = Array.from({ length: GRID_END - GRID_START }, (_, i) => GRID_START + i);
-const GRID_HEIGHT = GRID_HOURS.length * HOUR_HEIGHT; // 784
+const GRID_HEIGHT = GRID_HOURS.length * HOUR_HEIGHT; // 364
 
 const PERSONS = [
   { key: 'maddie', label: 'Maddie', color: COLORS.maddie, light: COLORS.maddieLight,
@@ -84,7 +84,7 @@ function eventTop(isoStart) {
 function eventHeight(isoStart, isoEnd) {
   if (!isoStart || !isoEnd) return HOUR_HEIGHT;
   const diff = (new Date(isoEnd) - new Date(isoStart)) / 3600000;
-  return Math.max(20, diff * HOUR_HEIGHT);
+  return Math.max(16, diff * HOUR_HEIGHT);
 }
 
 // ─── PersonAvatar ─────────────────────────────────────────────────────────────
@@ -119,7 +119,7 @@ function EventBlock({ event, color, light }) {
       <Text style={[styles.eventTimeText, { color }]} numberOfLines={1}>
         {formatEventTime(event.startTime)}
       </Text>
-      {height > 28 && (
+      {height > 20 && (
         <Text style={[styles.eventTitleText, { color }]} numberOfLines={2}>
           {event.title}
         </Text>
@@ -166,8 +166,8 @@ function CallHomeSection({ identity }) {
       {state === 'calling' ? (
         <View style={styles.callRow}>
           <View style={[styles.callBtn, { backgroundColor: COLORS.family, flex: 1 }]}>
-            <ActivityIndicator color="#fff" style={{ marginRight: 8 }} />
-            <Text style={styles.callBtnText}>Calling Home…</Text>
+            <ActivityIndicator color="#fff" style={{ marginRight: 6 }} />
+            <Text style={styles.callBtnText}>Calling…</Text>
           </View>
           <TouchableOpacity style={[styles.callBtn, styles.callCancelBtn]} onPress={cancelCall}>
             <Text style={styles.callBtnText}>Cancel</Text>
@@ -252,6 +252,11 @@ export default function HomeTab() {
 
   const tiTop = isToday ? getTimeIndicatorTop() : -1;
 
+  const row1Label = isToday
+    ? 'Today'
+    : new Date(viewDate + 'T12:00:00').toLocaleDateString('en-SG', { weekday: 'short' });
+  const row2Label = new Date(tomorrow + 'T12:00:00').toLocaleDateString('en-SG', { weekday: 'short' });
+
   return (
     <View style={styles.screen}>
 
@@ -271,7 +276,7 @@ export default function HomeTab() {
         </TouchableOpacity>
       </View>
 
-      {/* ── Column headers (sticky-ish, above scroll) ── */}
+      {/* ── Column headers ── */}
       <View style={styles.colHeaderRow}>
         <View style={{ width: TIMELINE_W }} />
         {PERSONS.map(p => (
@@ -284,19 +289,22 @@ export default function HomeTab() {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        contentContainerStyle={{ paddingBottom: 4 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={accent} />}
       >
         {/* ── Calendar grid ── */}
         <View style={{ position: 'relative' }}>
           <View style={{ flexDirection: 'row', height: GRID_HEIGHT }}>
 
-            {/* Hour labels */}
-            <View style={{ width: TIMELINE_W }}>
-              {GRID_HOURS.map(h => (
-                <View key={h} style={{ height: HOUR_HEIGHT, paddingTop: 3, alignItems: 'flex-end', paddingRight: 5 }}>
-                  <Text style={styles.hourLabel}>{formatHour(h)}</Text>
-                </View>
+            {/* Hour labels — absolute positioned so each label centres on its line */}
+            <View style={{ width: TIMELINE_W, height: GRID_HEIGHT, position: 'relative' }}>
+              {GRID_HOURS.map((h, i) => (
+                <Text
+                  key={h}
+                  style={[styles.hourLabel, { position: 'absolute', top: i * HOUR_HEIGHT - 5, right: 5 }]}
+                >
+                  {formatHour(h)}
+                </Text>
               ))}
             </View>
 
@@ -329,7 +337,6 @@ export default function HomeTab() {
 
         {/* ── Tasks section ── */}
         <View style={styles.sectionBorder}>
-          {/* Per-column "TASKS ›" headers */}
           <View style={{ flexDirection: 'row' }}>
             <View style={{ width: TIMELINE_W }} />
             {PERSONS.map(p => (
@@ -338,8 +345,7 @@ export default function HomeTab() {
               </View>
             ))}
           </View>
-          {/* Task items */}
-          <View style={{ flexDirection: 'row', minHeight: 52 }}>
+          <View style={{ flexDirection: 'row', minHeight: 36 }}>
             <View style={{ width: TIMELINE_W }} />
             {PERSONS.map(p => {
               const colTasks = tasksFor(p.key);
@@ -363,33 +369,37 @@ export default function HomeTab() {
 
         {/* ── Meal Plan section ── */}
         <View style={styles.sectionBorder}>
-          <View style={styles.mealPlanHeader}>
-            <Text style={styles.sectionLabel}>MEAL PLAN ›</Text>
-          </View>
-          {/* Table header row */}
+          {/* Section label + column headers in one compact block */}
           <View style={styles.mealHeaderRow}>
-            <View style={styles.mealDateCol} />
-            <View style={styles.mealLunchBlock}>
-              <Text style={styles.mealGroupLabel}>LUNCH</Text>
-              <View style={{ flexDirection: 'row' }}>
-                <Text style={[styles.mealPersonLabel, { color: COLORS.maddie }]}>MADDIE</Text>
-                <Text style={[styles.mealPersonLabel, { color: COLORS.alex }]}>ALEX</Text>
-              </View>
+            <View style={styles.mealDateCol}>
+              <Text style={styles.sectionLabel}>MEAL{'\n'}PLAN ›</Text>
             </View>
-            <View style={styles.mealDinnerBlock}>
+            {/* Maddie lunch col */}
+            <View style={styles.mealColHead}>
+              <Text style={styles.mealGroupLabel}>LUNCH</Text>
+              <Text style={[styles.mealPersonName, { color: COLORS.maddie }]}>MADDIE</Text>
+            </View>
+            {/* Alex lunch col */}
+            <View style={[styles.mealColHead, styles.mealColBorder]}>
+              <Text style={styles.mealGroupLabel}> </Text>
+              <Text style={[styles.mealPersonName, { color: COLORS.alex }]}>ALEX</Text>
+            </View>
+            {/* Dinner col */}
+            <View style={[styles.mealColHead, styles.mealColBorder]}>
               <Text style={styles.mealGroupLabel}>DINNER</Text>
+              <Text style={styles.mealPersonName}> </Text>
             </View>
           </View>
           {/* Data rows */}
           {[
-            { ds: viewDate, label: isToday ? 'Today' : new Date(viewDate + 'T12:00:00').toLocaleDateString('en-SG', { weekday: 'short' }) },
-            { ds: tomorrow, label: new Date(tomorrow + 'T12:00:00').toLocaleDateString('en-SG', { weekday: 'short' }) },
+            { ds: viewDate, label: row1Label },
+            { ds: tomorrow, label: row2Label },
           ].map(({ ds, label }) => (
             <View key={ds} style={styles.mealDataRow}>
               <Text style={styles.mealDateLabel}>{label}</Text>
-              <Text style={styles.mealCell} numberOfLines={2}>{mealFor(ds, 'maddie', 'lunch')}</Text>
-              <Text style={styles.mealCell} numberOfLines={2}>{mealFor(ds, 'alex', 'lunch')}</Text>
-              <Text style={[styles.mealCell, styles.mealDinnerCell]} numberOfLines={2}>{dinnerFor(ds)}</Text>
+              <Text style={styles.mealCell} numberOfLines={1}>{mealFor(ds, 'maddie', 'lunch')}</Text>
+              <Text style={[styles.mealCell, styles.mealColBorder]} numberOfLines={1}>{mealFor(ds, 'alex', 'lunch')}</Text>
+              <Text style={[styles.mealCell, styles.mealColBorder]} numberOfLines={1}>{dinnerFor(ds)}</Text>
             </View>
           ))}
         </View>
@@ -437,17 +447,17 @@ const styles = StyleSheet.create({
   dateNav: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 48,
+    height: 40,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
     backgroundColor: COLORS.background,
   },
-  navBtn: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
-  navArrow: { fontSize: 24, color: COLORS.textSecondary, lineHeight: 28 },
+  navBtn: { width: 44, height: 40, alignItems: 'center', justifyContent: 'center' },
+  navArrow: { fontSize: 22, color: COLORS.textSecondary, lineHeight: 26 },
   navCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   navLabel: {
     fontFamily: FONTS.headingBold,
-    fontSize: 12,
+    fontSize: 11,
     letterSpacing: 1,
   },
 
@@ -460,25 +470,25 @@ const styles = StyleSheet.create({
   colHeader: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 6,
     borderLeftWidth: 1,
     borderLeftColor: COLORS.border,
   },
-  avatar: { width: 42, height: 42, borderRadius: 21 },
+  avatar: { width: 34, height: 34, borderRadius: 17 },
   avatarInitial: {
-    width: 42, height: 42, borderRadius: 21,
+    width: 34, height: 34, borderRadius: 17,
     alignItems: 'center', justifyContent: 'center',
   },
   avatarInitialText: {
     fontFamily: FONTS.headingBold,
-    fontSize: 18,
+    fontSize: 15,
     color: '#fff',
   },
   colName: {
     fontFamily: FONTS.headingBold,
-    fontSize: 10,
+    fontSize: 9,
     letterSpacing: 1,
-    marginTop: 5,
+    marginTop: 3,
   },
 
   scroll: { flex: 1 },
@@ -497,30 +507,27 @@ const styles = StyleSheet.create({
   },
   halfHourLine: {
     position: 'absolute', left: 0, right: 0,
-    height: 0,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    borderStyle: 'dashed',
-    opacity: 0.5,
+    height: 1, backgroundColor: COLORS.border, opacity: 0.3,
   },
   hourLabel: {
     fontFamily: FONTS.body,
-    fontSize: 9,
+    fontSize: 8,
     color: COLORS.textSecondary,
-    lineHeight: 11,
+    lineHeight: 10,
+    textAlign: 'right',
   },
   eventBlock: {
     position: 'absolute',
     left: 2,
     right: 2,
-    borderLeftWidth: 3,
-    paddingLeft: 4,
-    paddingTop: 2,
-    borderRadius: 3,
+    borderLeftWidth: 2,
+    paddingLeft: 3,
+    paddingTop: 1,
+    borderRadius: 2,
     overflow: 'hidden',
   },
-  eventTimeText: { fontFamily: FONTS.body, fontSize: 9, lineHeight: 12 },
-  eventTitleText: { fontFamily: FONTS.bodyMedium, fontSize: 10, lineHeight: 13 },
+  eventTimeText: { fontFamily: FONTS.body, fontSize: 8, lineHeight: 10 },
+  eventTitleText: { fontFamily: FONTS.bodyMedium, fontSize: 9, lineHeight: 11 },
   timeIndicator: {
     position: 'absolute', left: TIMELINE_W, right: 0,
     height: 2, backgroundColor: COLORS.timeIndicator, zIndex: 10,
@@ -536,7 +543,7 @@ const styles = StyleSheet.create({
   sectionBorder: { borderTopWidth: 1, borderTopColor: COLORS.border },
   sectionLabel: {
     fontFamily: FONTS.heading,
-    fontSize: 11,
+    fontSize: 10,
     letterSpacing: 0.8,
     color: COLORS.textSecondary,
     textTransform: 'uppercase',
@@ -548,90 +555,84 @@ const styles = StyleSheet.create({
     borderLeftWidth: 1,
     borderLeftColor: COLORS.border,
     paddingHorizontal: 5,
-    paddingVertical: 6,
+    paddingVertical: 4,
   },
   taskColBody: {
     flex: 1,
     borderLeftWidth: 1,
     borderLeftColor: COLORS.border,
     paddingHorizontal: 4,
-    paddingTop: 4,
-    paddingBottom: 8,
+    paddingTop: 3,
+    paddingBottom: 4,
   },
-  taskRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 3, gap: 3 },
-  taskDot: { width: 6, height: 6, borderRadius: 3, marginTop: 4, flexShrink: 0 },
-  taskTitle: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.text, flex: 1, lineHeight: 14 },
+  taskRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 2, gap: 3 },
+  taskDot: { width: 5, height: 5, borderRadius: 3, marginTop: 4, flexShrink: 0 },
+  taskTitle: { fontFamily: FONTS.body, fontSize: 9, color: COLORS.text, flex: 1, lineHeight: 13 },
   taskDone: { color: COLORS.textSecondary, textDecorationLine: 'line-through' },
   emptyHint: {
     fontFamily: FONTS.body, fontSize: 10, color: COLORS.textSecondary,
-    textAlign: 'center', marginTop: 6,
+    textAlign: 'center', marginTop: 4,
   },
 
-  // Meal Plan
-  mealPlanHeader: { paddingHorizontal: 10, paddingVertical: 8 },
+  // Meal Plan — flat column structure so header and data rows align perfectly
   mealHeaderRow: {
     flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  mealDateCol: { width: 48 },
-  mealLunchBlock: {
-    flex: 2,
-    borderLeftWidth: 1,
-    borderLeftColor: COLORS.border,
+  mealDateCol: {
+    width: 48,
+    paddingHorizontal: 5,
     paddingVertical: 4,
-    paddingHorizontal: 4,
+    justifyContent: 'center',
   },
-  mealDinnerBlock: {
+  mealColHead: {
     flex: 1,
+    paddingHorizontal: 4,
+    paddingVertical: 3,
     borderLeftWidth: 1,
     borderLeftColor: COLORS.border,
-    paddingVertical: 4,
-    paddingHorizontal: 4,
-    justifyContent: 'flex-end',
+  },
+  mealColBorder: {
+    borderLeftWidth: 1,
+    borderLeftColor: COLORS.border,
   },
   mealGroupLabel: {
     fontFamily: FONTS.heading,
-    fontSize: 9,
-    letterSpacing: 0.5,
+    fontSize: 8,
+    letterSpacing: 0.4,
     color: COLORS.textSecondary,
     textTransform: 'uppercase',
-    marginBottom: 2,
   },
-  mealPersonLabel: {
+  mealPersonName: {
     fontFamily: FONTS.heading,
     fontSize: 8,
     letterSpacing: 0.3,
     textTransform: 'uppercase',
-    flex: 1,
+    color: COLORS.textSecondary,
   },
   mealDataRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 36,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    minHeight: 22,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
   },
   mealDateLabel: {
     width: 48,
     fontFamily: FONTS.bodyMedium,
-    fontSize: 10,
+    fontSize: 9,
     color: COLORS.text,
-    paddingLeft: 6,
+    paddingLeft: 5,
   },
   mealCell: {
     flex: 1,
     fontFamily: FONTS.body,
-    fontSize: 10,
+    fontSize: 9,
     color: COLORS.text,
     paddingHorizontal: 4,
-    paddingVertical: 4,
-    borderLeftWidth: 1,
-    borderLeftColor: COLORS.border,
+    paddingVertical: 3,
   },
-  mealDinnerCell: { flex: 1 },
 
   // Rewards + Call side-by-side row
   rewardsCallRow: {
@@ -641,7 +642,7 @@ const styles = StyleSheet.create({
   rewardsPane: {
     flex: 1,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderRightWidth: 1,
     borderRightColor: COLORS.border,
   },
@@ -653,39 +654,39 @@ const styles = StyleSheet.create({
   rewardRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingBottom: 8,
+    paddingBottom: 4,
     gap: 6,
   },
-  rewardName: { fontFamily: FONTS.bodyMedium, fontSize: 11, width: 40 },
+  rewardName: { fontFamily: FONTS.bodyMedium, fontSize: 10, width: 38 },
   rewardBarTrack: {
     flex: 1,
-    height: 7,
+    height: 5,
     backgroundColor: COLORS.border,
-    borderRadius: 4,
+    borderRadius: 3,
     overflow: 'hidden',
   },
-  rewardBarFill: { height: '100%', borderRadius: 4 },
-  rewardPts: { fontFamily: FONTS.body, fontSize: 10, width: 44, textAlign: 'right' },
+  rewardBarFill: { height: '100%', borderRadius: 3 },
+  rewardPts: { fontFamily: FONTS.body, fontSize: 9, width: 40, textAlign: 'right' },
 
   // Video Call section
   videoCallSection: {
     paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 10,
+    paddingTop: 6,
+    paddingBottom: 8,
   },
-  callRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  callRow: { flexDirection: 'row', gap: 8, marginTop: 6 },
   callBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    minHeight: 44,
-    gap: 6,
-    marginTop: 6,
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    minHeight: 36,
+    gap: 5,
+    marginTop: 4,
   },
-  callCancelBtn: { backgroundColor: '#dc2626', paddingHorizontal: 16, flex: 0, marginTop: 0 },
-  callBtnIcon: { fontSize: 16 },
-  callBtnText: { fontFamily: FONTS.headingBold, fontSize: 13, color: '#fff', letterSpacing: 0.3 },
+  callCancelBtn: { backgroundColor: '#dc2626', paddingHorizontal: 12, flex: 0, marginTop: 0 },
+  callBtnIcon: { fontSize: 14 },
+  callBtnText: { fontFamily: FONTS.headingBold, fontSize: 12, color: '#fff', letterSpacing: 0.3 },
 });

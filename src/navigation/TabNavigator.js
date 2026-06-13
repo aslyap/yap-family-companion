@@ -1,6 +1,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIdentity } from '../contexts/IdentityContext';
 import HomeTab from '../tabs/HomeTab';
 import CalendarTab from '../tabs/CalendarTab';
@@ -22,6 +23,7 @@ const TAB_CONFIG = [
 export default function TabNavigator() {
   const { identity, clearIdentity } = useIdentity();
   const accent = getAccentColor(identity);
+  const insets = useSafeAreaInsets();
 
   return (
     <Tab.Navigator
@@ -40,8 +42,8 @@ export default function TabNavigator() {
           tabBarStyle: {
             backgroundColor: COLORS.background,
             borderTopColor: COLORS.border,
-            height: 60,
-            paddingBottom: 8,
+            height: 52 + insets.bottom,
+            paddingBottom: insets.bottom + 4,
           },
           tabBarLabelStyle: {
             fontFamily: 'JosefinSans_600SemiBold',
@@ -54,7 +56,6 @@ export default function TabNavigator() {
             borderBottomWidth: 1,
             elevation: 0,
             shadowOpacity: 0,
-            height: 44,
           },
           headerTitleStyle: {
             fontFamily: 'JosefinSans_700Bold',
