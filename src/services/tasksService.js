@@ -45,3 +45,18 @@ export async function toggleComplete(task, dateStr) {
   if (error) throw error;
   return { ...task, completion_status: updated };
 }
+
+export async function addTask(taskData) {
+  const { data, error } = await supabase
+    .from('tasks')
+    .insert([{ ...taskData, completion_status: {} }])
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteTask(id) {
+  const { error } = await supabase.from('tasks').delete().eq('id', id);
+  if (error) throw error;
+}
