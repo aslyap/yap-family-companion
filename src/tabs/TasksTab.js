@@ -61,10 +61,7 @@ function offsetDate(ds, days) {
 
 function formatDateNav(ds) {
   const d = new Date(ds + 'T12:00:00');
-  if (ds === todayStr()) {
-    return `Today, ${d.toLocaleDateString('en-SG', { day: 'numeric', month: 'long' })}`;
-  }
-  return d.toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'long' });
+  return d.toLocaleDateString('en-SG', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 // ─── reducer ─────────────────────────────────────────────────────────────────
@@ -499,8 +496,8 @@ const styles = StyleSheet.create({
   },
   navLabel: {
     fontFamily: FONTS.heading,
-    fontSize: 14,
-    letterSpacing: 0.2,
+    fontSize: 12,
+    letterSpacing: 0.5,
     color: COLORS.text,
   },
 

@@ -38,7 +38,7 @@ export default function TabNavigator() {
           tabBarActiveTintColor: accent,
           tabBarInactiveTintColor: COLORS.textSecondary,
           tabBarStyle: {
-            backgroundColor: COLORS.background,
+            backgroundColor: COLORS.surface,
             borderTopColor: COLORS.border,
           },
           tabBarLabelStyle: {
@@ -47,7 +47,7 @@ export default function TabNavigator() {
             letterSpacing: 0.3,
           },
           headerStyle: {
-            backgroundColor: COLORS.background,
+            backgroundColor: COLORS.surface,
             borderBottomColor: COLORS.border,
             borderBottomWidth: 1,
             elevation: 0,
@@ -55,11 +55,12 @@ export default function TabNavigator() {
             height: 52,
           },
           headerTitleStyle: {
-            fontFamily: 'DMSans_500Medium',
-            fontSize: 15,
+            fontFamily: 'JosefinSans_700Bold',
+            fontSize: 13,
             color: COLORS.text,
-            letterSpacing: 0,
+            letterSpacing: 0.5,
           },
+          headerTitleAlign: 'center',
           headerRight: () => (
             <Ionicons
               name="person-circle-outline"

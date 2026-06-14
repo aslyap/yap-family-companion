@@ -414,7 +414,7 @@ function DayView({ events, dateStr }) {
       <View style={styles.dayHeaderRow}>
         <View style={{ width: TIMELINE_W }} />
         {PERSONS.map(p => (
-          <View key={p.key} style={[styles.dayColHeader, { width: DAY_COL_W, backgroundColor: p.light }]}>
+          <View key={p.key} style={[styles.dayColHeader, { flex: 1, backgroundColor: p.light }]}>
             <PersonAvatar person={p} size={26} />
             <Text style={[styles.dayColName, { color: p.color }]}>{p.label.toUpperCase()}</Text>
           </View>
@@ -1099,15 +1099,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: H_PAD,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLORS.border,
-    paddingBottom: 6,
-    paddingTop: 4,
   },
   dayColHeader: {
     alignItems: 'center',
     paddingVertical: 6,
     gap: 4,
-    borderRadius: 6,
-    marginHorizontal: 1,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: COLORS.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.border,
   },
   dayColName: {
     fontFamily: FONTS.heading,

@@ -203,8 +203,7 @@ export default function HomeTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [tick, setTick]           = useState(0);
 
-  const isToday  = viewDate === todayStr();
-  const tomorrow = offsetDate(viewDate, 1);
+  const isToday = viewDate === todayStr();
 
   useEffect(() => {
     const id = setInterval(() => setTick(t => t + 1), 60000);
@@ -216,7 +215,7 @@ export default function HomeTab() {
       const [evData, taskData, mealData, rewardData] = await Promise.allSettled([
         fetchCalendarEvents(viewDate),
         fetchTasks(),
-        fetchMealsForDates([viewDate, tomorrow]),
+        fetchMealsForDates([viewDate]),
         fetchRewards(),
       ]);
       if (evData.status     === 'fulfilled') setEvents(evData.value);
@@ -252,10 +251,9 @@ export default function HomeTab() {
 
   const tiTop = isToday ? getTimeIndicatorTop() : -1;
 
-  const row1Label = isToday
+  const dayLabel = isToday
     ? 'Today'
     : new Date(viewDate + 'T12:00:00').toLocaleDateString('en-SG', { weekday: 'short' });
-  const row2Label = new Date(tomorrow + 'T12:00:00').toLocaleDateString('en-SG', { weekday: 'short' });
 
   return (
     <View style={styles.screen}>
@@ -282,7 +280,6 @@ export default function HomeTab() {
         {PERSONS.map(p => (
           <View key={p.key} style={[styles.colHeader, { backgroundColor: p.light }]}>
             <PersonAvatar person={p} />
-            <Text style={[styles.colName, { color: p.color }]}>{p.label.toUpperCase()}</Text>
           </View>
         ))}
       </View>
@@ -389,25 +386,20 @@ export default function HomeTab() {
               <Text style={[styles.mealGroupLabel, { textAlign: 'center', width: '100%' }]}>DINNER</Text>
             </View>
           </View>
-          {/* Data rows */}
-          {[
-            { ds: viewDate, label: row1Label },
-            { ds: tomorrow, label: row2Label },
-          ].map(({ ds, label }) => (
-            <View key={ds} style={styles.mealDataRow}>
-              <Text style={styles.mealDateLabel}>{label}</Text>
-              <Text style={[styles.mealCell, { textAlign: 'center' }]} numberOfLines={1}>{mealFor(ds, 'maddie', 'lunch')}</Text>
-              <Text style={[styles.mealCell, { textAlign: 'center' }]} numberOfLines={1}>{mealFor(ds, 'alex', 'lunch')}</Text>
-              <Text style={[styles.mealCell, styles.mealColBorder, { textAlign: 'center' }]} numberOfLines={1}>{dinnerFor(ds)}</Text>
-            </View>
-          ))}
+          {/* Data row — today only */}
+          <View style={styles.mealDataRow}>
+            <Text style={styles.mealDateLabel}>{dayLabel}</Text>
+            <Text style={[styles.mealCell, { textAlign: 'center' }]} numberOfLines={1}>{mealFor(viewDate, 'maddie', 'lunch')}</Text>
+            <Text style={[styles.mealCell, { textAlign: 'center' }]} numberOfLines={1}>{mealFor(viewDate, 'alex', 'lunch')}</Text>
+            <Text style={[styles.mealCell, styles.mealColBorder, { textAlign: 'center' }]} numberOfLines={1}>{dinnerFor(viewDate)}</Text>
+          </View>
         </View>
 
         {/* ── Rewards + Video Call side by side ── */}
         <View style={[styles.sectionBorder, styles.rewardsCallRow]}>
           {/* Rewards */}
           <View style={styles.rewardsPane}>
-            <Text style={styles.sectionLabel}>REWARDS ›</Text>
+            <Text style={[styles.sectionLabel, { marginBottom: 6 }]}>REWARDS ›</Text>
             {['maddie', 'alex'].map(person => {
               const r = rewards[person];
               const color = person === 'maddie' ? COLORS.maddie : COLORS.alex;
@@ -470,7 +462,7 @@ const styles = StyleSheet.create({
   colHeader: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 2,
+    paddingVertical: 4,
     borderLeftWidth: 1,
     borderLeftColor: COLORS.border,
   },
@@ -652,7 +644,7 @@ const styles = StyleSheet.create({
   rewardRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingBottom: 4,
+    paddingBottom: 1,
     gap: 6,
   },
   rewardName: { fontFamily: FONTS.bodyMedium, fontSize: 10, width: 38 },

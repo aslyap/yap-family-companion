@@ -68,7 +68,7 @@ function getWeekDates(weekOffset) {
 }
 
 function formatWeekRange(dates) {
-  const fmt = (ds) => new Date(ds + 'T12:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short' });
+  const fmt = (ds) => new Date(ds + 'T12:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'long' });
   return `${fmt(dates[0])} – ${fmt(dates[6])}`;
 }
 
@@ -348,8 +348,8 @@ const styles = StyleSheet.create({
   navCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   navLabel: {
     fontFamily: FONTS.heading,
-    fontSize: 11,
-    letterSpacing: 0.6,
+    fontSize: 12,
+    letterSpacing: 0.5,
     color: COLORS.text,
   },
 
