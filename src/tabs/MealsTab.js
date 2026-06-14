@@ -6,17 +6,25 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONTS } from '../theme';
-import { fetchMealsForDate, upsertMeal, deleteMeal } from '../services/mealsService';
+import { fetchMealsForDates, upsertMeal, deleteMeal } from '../services/mealsService';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
-const PEOPLE = [
-  { key: 'maddie', label: 'Maddie', color: COLORS.maddie, light: COLORS.maddieLight },
-  { key: 'alex',   label: 'Alex',   color: COLORS.alex,   light: COLORS.alexLight   },
-];
+const DAY_COL = 38;
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const MEAL_TYPES = ['lunch', 'dinner'];
-const MEAL_LABELS = { lunch: 'Lunch', dinner: 'Dinner' };
+// Breakfast uses meal_type 'breakfast' — ensure your Supabase meals table allows this value.
+// If you have a CHECK constraint limiting to ('lunch','dinner'), run:
+//   ALTER TABLE meals DROP CONSTRAINT meals_meal_type_check;
+//   ALTER TABLE meals ADD CONSTRAINT meals_meal_type_check
+//     CHECK (meal_type IN ('breakfast','lunch','dinner'));
+const MEAL_COLS = [
+  { id: 'b-m', mealType: 'breakfast', person: 'maddie', groupLabel: 'BKFST', subLabel: 'MADDIE', color: COLORS.maddie, light: COLORS.maddieLight },
+  { id: 'b-a', mealType: 'breakfast', person: 'alex',   groupLabel: '',       subLabel: 'ALEX',   color: COLORS.alex,   light: COLORS.alexLight   },
+  { id: 'l-m', mealType: 'lunch',     person: 'maddie', groupLabel: 'LUNCH',  subLabel: 'MADDIE', color: COLORS.maddie, light: COLORS.maddieLight },
+  { id: 'l-a', mealType: 'lunch',     person: 'alex',   groupLabel: '',       subLabel: 'ALEX',   color: COLORS.alex,   light: COLORS.alexLight   },
+  { id: 'd',   mealType: 'dinner',    person: 'family', groupLabel: 'DINNER', subLabel: '',       color: COLORS.family, light: COLORS.familyLight  },
+];
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -24,11 +32,25 @@ function makeDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function dayLabel(offset) {
-  const d = new Date();
-  d.setDate(d.getDate() + offset);
-  const datePart = d.toLocaleDateString('en-SG', { day: 'numeric', month: 'long' });
-  return offset === 0 ? `Today, ${datePart}` : `Tomorrow, ${datePart}`;
+function todayStr() {
+  return makeDateStr(new Date());
+}
+
+function getWeekDates(weekOffset) {
+  const today = new Date();
+  const day = today.getDay();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - (day === 0 ? 6 : day - 1) + weekOffset * 7);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return makeDateStr(d);
+  });
+}
+
+function formatWeekRange(dates) {
+  const fmt = (ds) => new Date(ds + 'T12:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short' });
+  return `${fmt(dates[0])} – ${fmt(dates[6])}`;
 }
 
 // ─── reducer ─────────────────────────────────────────────────────────────────
@@ -45,13 +67,13 @@ function mealsReducer(state, action) {
       return [...rest, action.meal];
     }
     case 'delete': return state.filter(m => m.id !== action.id);
-    default:       return state;
+    default: return state;
   }
 }
 
-// ─── EditMealSheet ────────────────────────────────────────────────────────────
+// ─── EditMealSheet ─────────────────────────────────────────────────────────────
 
-function EditMealSheet({ visible, meal, personLabel, mealType, onClose, onSave, onDelete }) {
+function EditMealSheet({ visible, meal, col, onClose, onSave, onDelete }) {
   const insets = useSafeAreaInsets();
   const [dishName, setDishName] = useState('');
   const [saving, setSaving] = useState(false);
@@ -77,17 +99,15 @@ function EditMealSheet({ visible, meal, personLabel, mealType, onClose, onSave, 
   }
 
   async function handleDelete() {
+    if (!meal) return;
     setSaving(true);
-    try {
-      await onDelete(meal.id);
-    } catch {
-      setSaving(false);
-    }
+    try { await onDelete(meal.id); } catch { setSaving(false); }
   }
 
-  const title = `${MEAL_LABELS[mealType]} — ${personLabel}`;
-  const person = PEOPLE.find(p => p.label === personLabel);
-  const accentColor = person?.color ?? COLORS.family;
+  const mealLabel = col?.mealType === 'breakfast' ? 'Breakfast' : col?.mealType === 'lunch' ? 'Lunch' : 'Dinner';
+  const personLabel = col?.subLabel || 'Family';
+  const title = personLabel ? `${mealLabel} — ${personLabel}` : mealLabel;
+  const accentColor = col?.color ?? COLORS.family;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -117,11 +137,7 @@ function EditMealSheet({ visible, meal, personLabel, mealType, onClose, onSave, 
 
             <View style={styles.sheetActions}>
               {meal && (
-                <TouchableOpacity
-                  style={[styles.deleteBtn]}
-                  onPress={handleDelete}
-                  disabled={saving}
-                >
+                <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete} disabled={saving}>
                   <Text style={styles.deleteBtnText}>Delete</Text>
                 </TouchableOpacity>
               )}
@@ -147,50 +163,46 @@ function EditMealSheet({ visible, meal, personLabel, mealType, onClose, onSave, 
 
 export default function MealsTab() {
   const insets = useSafeAreaInsets();
-  const [dayOffset, setDayOffset] = useState(0);
+  const [weekOffset, setWeekOffset] = useState(0);
   const [meals, dispatch] = useReducer(mealsReducer, []);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [editing, setEditing] = useState(null); // { person, personLabel, mealType, meal }
+  const [editing, setEditing] = useState(null);
 
-  const viewDate = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + dayOffset);
-    return makeDateStr(d);
-  }, [dayOffset]);
+  const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
+  const today = todayStr();
 
   const load = useCallback(async () => {
     try {
-      const data = await fetchMealsForDate(viewDate);
+      const data = await fetchMealsForDates(weekDates);
       dispatch({ type: 'set', meals: data });
     } catch {}
     setLoading(false);
     setRefreshing(false);
-  }, [viewDate]);
+  }, [weekDates]);
 
   useEffect(() => {
     setLoading(true);
     load();
   }, [load]);
 
-  function onRefresh() {
-    setRefreshing(true);
-    load();
+  function onRefresh() { setRefreshing(true); load(); }
+
+  function mealFor(dateStr, col) {
+    return meals.find(m =>
+      m.date === dateStr && m.person === col.person && m.meal_type === col.mealType
+    );
   }
 
-  function mealFor(personKey, mealType) {
-    return meals.find(m => m.date === viewDate && m.person === personKey && m.meal_type === mealType);
-  }
-
-  function openEdit(person, mealType) {
-    setEditing({ person: person.key, personLabel: person.label, mealType, meal: mealFor(person.key, mealType) });
+  function openEdit(col, dateStr) {
+    setEditing({ col, dateStr, meal: mealFor(dateStr, col) });
   }
 
   async function handleSave(dishName) {
     const saved = await upsertMeal({
-      date: viewDate,
-      meal_type: editing.mealType,
-      person: editing.person,
+      date: editing.dateStr,
+      meal_type: editing.col.mealType,
+      person: editing.col.person,
       dish_name: dishName,
     });
     dispatch({ type: 'upsert', meal: saved });
@@ -205,87 +217,91 @@ export default function MealsTab() {
 
   return (
     <View style={[styles.screen, { paddingBottom: insets.bottom }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerRow}>
-          <Text style={styles.headerTitle}>Meal Plan</Text>
-          {loading && !refreshing && <ActivityIndicator size="small" color={COLORS.textSecondary} style={{ marginLeft: 8 }} />}
+
+      {/* Week navigation */}
+      <View style={styles.weekNav}>
+        <TouchableOpacity style={styles.navBtn} onPress={() => setWeekOffset(o => o - 1)}>
+          <Text style={styles.navArrow}>‹</Text>
+        </TouchableOpacity>
+        <View style={styles.navCenter}>
+          <Text style={styles.navLabel}>{formatWeekRange(weekDates)}</Text>
+          {loading && !refreshing && (
+            <ActivityIndicator size="small" color={COLORS.textSecondary} style={{ marginLeft: 6 }} />
+          )}
         </View>
-        <Text style={styles.headerDate}>{dayLabel(dayOffset)}</Text>
+        <TouchableOpacity style={styles.navBtn} onPress={() => setWeekOffset(o => o + 1)}>
+          <Text style={styles.navArrow}>›</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Today / Tomorrow toggle */}
-      <View style={styles.dayToggle}>
-        {[{ label: 'Today', offset: 0 }, { label: 'Tomorrow', offset: 1 }].map(({ label, offset }) => (
-          <TouchableOpacity
-            key={label}
-            style={[styles.dayToggleBtn, dayOffset === offset && styles.dayToggleBtnActive]}
-            onPress={() => setDayOffset(offset)}
-          >
-            <Text style={[styles.dayToggleBtnText, dayOffset === offset && styles.dayToggleBtnTextActive]}>
-              {label}
-            </Text>
-          </TouchableOpacity>
+      {/* Column header row 1: meal group labels */}
+      <View style={[styles.headerRow, { borderBottomWidth: 0 }]}>
+        <View style={{ width: DAY_COL }} />
+        <View style={[styles.groupHeader, { flex: 2, borderLeftWidth: 1, borderLeftColor: COLORS.border }]}>
+          <Text style={styles.groupHeaderText}>BKFST</Text>
+        </View>
+        <View style={[styles.groupHeader, { flex: 2, borderLeftWidth: 1, borderLeftColor: COLORS.border }]}>
+          <Text style={styles.groupHeaderText}>LUNCH</Text>
+        </View>
+        <View style={[styles.groupHeader, { flex: 1, borderLeftWidth: 1, borderLeftColor: COLORS.border }]}>
+          <Text style={styles.groupHeaderText}>DINNER</Text>
+        </View>
+      </View>
+
+      {/* Column header row 2: person sub-labels */}
+      <View style={styles.headerRow}>
+        <View style={{ width: DAY_COL }} />
+        {MEAL_COLS.map(col => (
+          <View key={col.id} style={[styles.personHeader, { backgroundColor: col.light }]}>
+            <Text style={[styles.personHeaderText, { color: col.color }]}>{col.subLabel}</Text>
+          </View>
         ))}
       </View>
 
+      {/* Data rows */}
       <ScrollView
         style={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {/* Column headers */}
-        <View style={styles.colHeaders}>
-          <View style={styles.rowLabelSpacer} />
-          {PEOPLE.map(p => (
-            <View key={p.key} style={[styles.colHeader, { backgroundColor: p.light }]}>
-              <View style={[styles.colPill, { backgroundColor: p.color }]} />
-              <Text style={[styles.colName, { color: p.color }]}>{p.label}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Meal rows */}
-        {MEAL_TYPES.map(mealType => (
-          <View key={mealType} style={styles.mealRow}>
-            <View style={styles.rowLabel}>
-              <Text style={styles.rowLabelText}>{MEAL_LABELS[mealType]}</Text>
-            </View>
-            {PEOPLE.map(p => {
-              const meal = mealFor(p.key, mealType);
-              return (
-                <TouchableOpacity
-                  key={p.key}
-                  style={[styles.mealCell, { borderTopColor: p.light }]}
-                  onPress={() => openEdit(p, mealType)}
-                  activeOpacity={0.7}
-                >
-                  {meal?.dish_name ? (
-                    <View style={[styles.dishChip, { backgroundColor: p.light, borderColor: p.color + '50' }]}>
-                      <Text style={[styles.dishText, { color: p.color }]} numberOfLines={3}>
+        {weekDates.map((ds, dayIdx) => {
+          const isToday = ds === today;
+          return (
+            <View key={ds} style={[styles.dayRow, isToday && styles.dayRowToday]}>
+              <View style={styles.dayLabelCol}>
+                <Text style={[styles.dayLabel, isToday && styles.dayLabelToday]}>
+                  {WEEKDAYS[dayIdx]}
+                </Text>
+              </View>
+              {MEAL_COLS.map(col => {
+                const meal = mealFor(ds, col);
+                return (
+                  <TouchableOpacity
+                    key={col.id}
+                    style={styles.mealCell}
+                    onPress={() => openEdit(col, ds)}
+                    activeOpacity={0.7}
+                  >
+                    {meal?.dish_name ? (
+                      <Text style={[styles.dishText, { color: col.color }]} numberOfLines={3}>
                         {meal.dish_name}
                       </Text>
-                    </View>
-                  ) : (
-                    <View style={styles.emptyCell}>
-                      <Text style={[styles.emptyCellPlus, { color: p.color + '80' }]}>+</Text>
-                      <Text style={styles.emptyCellHint}>Add</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ))}
-
-        <View style={{ height: 32 }} />
+                    ) : (
+                      <Text style={styles.emptyPlus}>+</Text>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          );
+        })}
+        <View style={{ height: 24 }} />
       </ScrollView>
 
       {editing && (
         <EditMealSheet
           visible={!!editing}
           meal={editing.meal}
-          personLabel={editing.personLabel}
-          mealType={editing.mealType}
+          col={editing.col}
           onClose={() => setEditing(null)}
           onSave={handleSave}
           onDelete={handleDelete}
@@ -298,171 +314,108 @@ export default function MealsTab() {
 // ─── styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
+  screen: { flex: 1, backgroundColor: COLORS.background },
 
-  // Header
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
+  weekNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 34,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
+  navBtn: { width: 44, height: 34, alignItems: 'center', justifyContent: 'center' },
+  navArrow: { fontSize: 22, color: COLORS.textSecondary, lineHeight: 26 },
+  navCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  navLabel: {
+    fontFamily: FONTS.heading,
+    fontSize: 11,
+    letterSpacing: 0.6,
+    color: COLORS.text,
+  },
+
   headerRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontFamily: FONTS.headingBold,
-    fontSize: 22,
-    color: COLORS.text,
-    letterSpacing: 0.3,
-  },
-  headerDate: {
-    fontFamily: FONTS.body,
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    marginTop: 2,
-  },
-
-  // Day toggle
-  dayToggle: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 10,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  dayToggleBtn: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 10,
-    paddingVertical: 10,
+  groupHeader: {
     alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 44,
+    paddingVertical: 3,
   },
-  dayToggleBtnActive: {
-    backgroundColor: COLORS.family,
-    borderColor: COLORS.family,
+  groupHeaderText: {
+    fontFamily: FONTS.heading,
+    fontSize: 8,
+    letterSpacing: 0.5,
+    color: COLORS.textSecondary,
+    textTransform: 'uppercase',
   },
-  dayToggleBtnText: {
-    fontFamily: FONTS.bodyMedium,
-    fontSize: 14,
-    color: COLORS.text,
+  personHeader: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 3,
+    borderLeftWidth: 1,
+    borderLeftColor: COLORS.border,
   },
-  dayToggleBtnTextActive: {
-    color: '#fff',
+  personHeaderText: {
+    fontFamily: FONTS.heading,
+    fontSize: 8,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
   },
 
   scroll: { flex: 1 },
 
-  // Column headers
-  colHeaders: {
+  dayRow: {
     flexDirection: 'row',
+    minHeight: 52,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  rowLabelSpacer: {
-    width: 72,
+  dayRowToday: {
+    backgroundColor: '#FAFAF8',
   },
-  colHeader: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    gap: 6,
-    borderLeftWidth: 1,
-    borderLeftColor: COLORS.border,
-  },
-  colPill: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    flexShrink: 0,
-  },
-  colName: {
-    fontFamily: FONTS.heading,
-    fontSize: 13,
-    letterSpacing: 0.3,
-  },
-
-  // Meal rows
-  mealRow: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    minHeight: 100,
-  },
-  rowLabel: {
-    width: 72,
+  dayLabelCol: {
+    width: DAY_COL,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 4,
     borderRightWidth: 1,
     borderRightColor: COLORS.border,
   },
-  rowLabelText: {
+  dayLabel: {
     fontFamily: FONTS.heading,
-    fontSize: 11,
-    letterSpacing: 0.4,
+    fontSize: 9,
+    letterSpacing: 0.3,
     color: COLORS.textSecondary,
     textTransform: 'uppercase',
-    textAlign: 'center',
+  },
+  dayLabelToday: {
+    fontFamily: FONTS.headingBold,
+    color: COLORS.text,
   },
   mealCell: {
     flex: 1,
     borderLeftWidth: 1,
     borderLeftColor: COLORS.border,
-    padding: 10,
-    alignItems: 'stretch',
+    padding: 4,
+    alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 100,
-  },
-  dishChip: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    minHeight: 52,
   },
   dishText: {
     fontFamily: FONTS.bodyMedium,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 9,
+    lineHeight: 12,
     textAlign: 'center',
   },
-  emptyCell: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-  },
-  emptyCellPlus: {
-    fontSize: 26,
-    lineHeight: 30,
-  },
-  emptyCellHint: {
-    fontFamily: FONTS.body,
-    fontSize: 11,
-    color: COLORS.textSecondary,
-    marginTop: 2,
+  emptyPlus: {
+    fontSize: 16,
+    color: COLORS.border,
+    lineHeight: 20,
   },
 
-  // Bottom sheet modal (shared pattern with TasksTab)
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
+  // Bottom sheet
+  overlay: { flex: 1, justifyContent: 'flex-end' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
   kvWrapper: { width: '100%' },
   sheet: {
     backgroundColor: COLORS.background,
@@ -472,36 +425,15 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   sheetHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
+    width: 40, height: 4, borderRadius: 2,
     backgroundColor: COLORS.border,
     alignSelf: 'center',
     marginBottom: 14,
   },
-  sheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  sheetTitle: {
-    fontFamily: FONTS.headingBold,
-    fontSize: 17,
-    color: COLORS.text,
-    flex: 1,
-    letterSpacing: 0.2,
-  },
-  closeBtn: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeBtnText: {
-    fontSize: 26,
-    color: COLORS.textSecondary,
-    lineHeight: 30,
-  },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  sheetTitle: { fontFamily: FONTS.headingBold, fontSize: 17, color: COLORS.text, flex: 1 },
+  closeBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  closeBtnText: { fontSize: 26, color: COLORS.textSecondary, lineHeight: 30 },
   fieldLabel: {
     fontFamily: FONTS.heading,
     fontSize: 11,
@@ -522,12 +454,7 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     minHeight: 48,
   },
-  errorText: {
-    color: '#dc2626',
-    fontFamily: FONTS.body,
-    fontSize: 13,
-    marginTop: 10,
-  },
+  errorText: { color: '#dc2626', fontFamily: FONTS.body, fontSize: 13, marginTop: 10 },
   sheetActions: {
     flexDirection: 'row',
     gap: 8,
@@ -547,11 +474,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 52,
   },
-  deleteBtnText: {
-    fontFamily: FONTS.bodyMedium,
-    fontSize: 14,
-    color: '#dc2626',
-  },
+  deleteBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 14, color: '#dc2626' },
   cancelBtn: {
     flex: 1,
     borderWidth: 1,
@@ -562,11 +485,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 52,
   },
-  cancelBtnText: {
-    fontFamily: FONTS.bodyMedium,
-    fontSize: 15,
-    color: COLORS.text,
-  },
+  cancelBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 15, color: COLORS.text },
   saveBtn: {
     flex: 2,
     borderRadius: 12,
@@ -575,10 +494,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 52,
   },
-  saveBtnText: {
-    fontFamily: FONTS.headingBold,
-    fontSize: 15,
-    color: '#fff',
-    letterSpacing: 0.3,
-  },
+  saveBtnText: { fontFamily: FONTS.headingBold, fontSize: 15, color: '#fff', letterSpacing: 0.3 },
 });

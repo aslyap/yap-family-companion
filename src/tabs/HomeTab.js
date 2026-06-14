@@ -301,11 +301,15 @@ export default function HomeTab() {
               {GRID_HOURS.map((h, i) => (
                 <Text
                   key={h}
-                  style={[styles.hourLabel, { position: 'absolute', top: i * HOUR_HEIGHT - 5, right: 5 }]}
+                  style={[styles.hourLabel, { position: 'absolute', top: i === 0 ? 2 : i * HOUR_HEIGHT - 5, right: 5 }]}
                 >
                   {formatHour(h)}
                 </Text>
               ))}
+              {/* 8pm label at grid bottom */}
+              <Text style={[styles.hourLabel, { position: 'absolute', top: GRID_HEIGHT - 5, right: 5 }]}>
+                8pm
+              </Text>
             </View>
 
             {/* Data columns */}
@@ -369,22 +373,21 @@ export default function HomeTab() {
 
         {/* ── Meal Plan section ── */}
         <View style={styles.sectionBorder}>
-          {/* Section label + column headers in one compact block */}
-          <View style={styles.mealHeaderRow}>
-            <View style={styles.mealDateCol}>
-              <Text style={styles.sectionLabel}>MEAL{'\n'}PLAN ›</Text>
-            </View>
-            {/* Maddie lunch col */}
+          {/* Section label above the table (like REWARDS ›) */}
+          <View style={styles.mealPlanLabelRow}>
+            <Text style={styles.sectionLabel}>MEAL PLAN ›</Text>
+          </View>
+          {/* Column headers */}
+          <View style={[styles.mealHeaderRow, { borderTopWidth: 1, borderTopColor: COLORS.border }]}>
+            <View style={{ width: TIMELINE_W }} />
             <View style={styles.mealColHead}>
               <Text style={styles.mealGroupLabel}>LUNCH</Text>
               <Text style={[styles.mealPersonName, { color: COLORS.maddie }]}>MADDIE</Text>
             </View>
-            {/* Alex lunch col */}
             <View style={[styles.mealColHead, styles.mealColBorder]}>
               <Text style={styles.mealGroupLabel}> </Text>
               <Text style={[styles.mealPersonName, { color: COLORS.alex }]}>ALEX</Text>
             </View>
-            {/* Dinner col */}
             <View style={[styles.mealColHead, styles.mealColBorder]}>
               <Text style={styles.mealGroupLabel}>DINNER</Text>
               <Text style={styles.mealPersonName}> </Text>
@@ -447,12 +450,12 @@ const styles = StyleSheet.create({
   dateNav: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 40,
+    height: 34,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
     backgroundColor: COLORS.background,
   },
-  navBtn: { width: 44, height: 40, alignItems: 'center', justifyContent: 'center' },
+  navBtn: { width: 44, height: 34, alignItems: 'center', justifyContent: 'center' },
   navArrow: { fontSize: 22, color: COLORS.textSecondary, lineHeight: 26 },
   navCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   navLabel: {
@@ -470,13 +473,13 @@ const styles = StyleSheet.create({
   colHeader: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 2,
     borderLeftWidth: 1,
     borderLeftColor: COLORS.border,
   },
-  avatar: { width: 34, height: 34, borderRadius: 17 },
+  avatar: { width: 28, height: 28, borderRadius: 14 },
   avatarInitial: {
-    width: 34, height: 34, borderRadius: 17,
+    width: 28, height: 28, borderRadius: 14,
     alignItems: 'center', justifyContent: 'center',
   },
   avatarInitialText: {
@@ -574,17 +577,15 @@ const styles = StyleSheet.create({
     textAlign: 'center', marginTop: 4,
   },
 
-  // Meal Plan — flat column structure so header and data rows align perfectly
+  // Meal Plan
+  mealPlanLabelRow: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
   mealHeaderRow: {
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
-  },
-  mealDateCol: {
-    width: 48,
-    paddingHorizontal: 5,
-    paddingVertical: 4,
-    justifyContent: 'center',
   },
   mealColHead: {
     flex: 1,
@@ -619,7 +620,7 @@ const styles = StyleSheet.create({
     borderTopColor: COLORS.border,
   },
   mealDateLabel: {
-    width: 48,
+    width: TIMELINE_W,
     fontFamily: FONTS.bodyMedium,
     fontSize: 9,
     color: COLORS.text,

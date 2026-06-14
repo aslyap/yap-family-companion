@@ -2,7 +2,7 @@ import React, { useCallback, useReducer, useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Modal, TextInput, Pressable, ActivityIndicator,
-  RefreshControl, KeyboardAvoidingView, Platform, Alert,
+  RefreshControl, KeyboardAvoidingView, Platform, Alert, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONTS } from '../theme';
@@ -14,10 +14,31 @@ import {
 // ─── constants ───────────────────────────────────────────────────────────────
 
 const PERSONS = [
-  { key: 'maddie', label: 'Maddie', color: COLORS.maddie, light: COLORS.maddieLight },
-  { key: 'alex',   label: 'Alex',   color: COLORS.alex,   light: COLORS.alexLight   },
-  { key: 'marj',   label: 'Marj',   color: COLORS.marj,   light: COLORS.marjLight   },
+  { key: 'maddie', label: 'Maddie', color: COLORS.maddie, light: COLORS.maddieLight,
+    avatarUri: 'https://yap-family-home.vercel.app/avatars/Maddie.jpg' },
+  { key: 'alex',   label: 'Alex',   color: COLORS.alex,   light: COLORS.alexLight,
+    avatarUri: 'https://yap-family-home.vercel.app/avatars/Alex.jpg'   },
+  { key: 'marj',   label: 'Marj',   color: COLORS.marj,   light: COLORS.marjLight,
+    avatarUri: null },
 ];
+
+function PersonAvatar({ person }) {
+  const [err, setErr] = useState(false);
+  if (!person.avatarUri || err) {
+    return (
+      <View style={[styles.avatarInitial, { backgroundColor: person.color }]}>
+        <Text style={styles.avatarInitialText}>{person.label[0]}</Text>
+      </View>
+    );
+  }
+  return (
+    <Image
+      source={{ uri: person.avatarUri }}
+      style={styles.avatar}
+      onError={() => setErr(true)}
+    />
+  );
+}
 
 const WEEKDAYS = [
   { id: 'mon', label: 'Mo' }, { id: 'tue', label: 'Tu' },
@@ -394,10 +415,10 @@ export default function TasksTab() {
             return (
               <View key={col.key} style={styles.col}>
                 <View style={[styles.colHead, { backgroundColor: col.light }]}>
-                  <View style={[styles.colPill, { backgroundColor: col.color }]} />
-                  <Text style={[styles.colName, { color: col.color }]} numberOfLines={1}>{col.label}</Text>
+                  <PersonAvatar person={col} />
+                  <Text style={[styles.colName, { color: col.color }]} numberOfLines={1}>{col.label.toUpperCase()}</Text>
                   {col.key !== 'marj' && (
-                    <Text style={[styles.colPts, { color: col.color }]}>{pts}pt</Text>
+                    <Text style={[styles.colPts, { color: col.color }]}>{pts} pts</Text>
                   )}
                 </View>
 
@@ -491,30 +512,33 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
   },
   colHead: {
-    flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 8,
-    gap: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+    gap: 2,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  colPill: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    flexShrink: 0,
+  avatar: { width: 34, height: 34, borderRadius: 17 },
+  avatarInitial: {
+    width: 34, height: 34, borderRadius: 17,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  avatarInitialText: {
+    fontFamily: FONTS.headingBold,
+    fontSize: 15,
+    color: '#fff',
   },
   colName: {
-    fontFamily: FONTS.heading,
-    fontSize: 10,
-    letterSpacing: 0.3,
-    flex: 1,
+    fontFamily: FONTS.headingBold,
+    fontSize: 9,
+    letterSpacing: 0.8,
+    textAlign: 'center',
   },
   colPts: {
     fontFamily: FONTS.body,
     fontSize: 9,
-    flexShrink: 0,
+    textAlign: 'center',
   },
   emptyText: {
     fontFamily: FONTS.body,

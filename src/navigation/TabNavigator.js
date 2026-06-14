@@ -54,10 +54,10 @@ export default function TabNavigator() {
             shadowOpacity: 0,
           },
           headerTitleStyle: {
-            fontFamily: 'JosefinSans_700Bold',
-            fontSize: 20,
+            fontFamily: 'DMSans_500Medium',
+            fontSize: 17,
             color: COLORS.text,
-            letterSpacing: 0.5,
+            letterSpacing: 0,
           },
           headerRight: () => (
             <Ionicons
