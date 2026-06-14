@@ -44,7 +44,7 @@ function offsetDate(ds, days) {
 
 function formatDateNav(ds) {
   const d = new Date(ds + 'T12:00:00');
-  return d.toLocaleDateString('en-SG', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase();
+  return d.toLocaleDateString('en-SG', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 function formatHour(h) {
@@ -266,7 +266,7 @@ export default function HomeTab() {
           <Text style={styles.navArrow}>‹</Text>
         </TouchableOpacity>
         <View style={styles.navCenter}>
-          <Text style={[styles.navLabel, { color: accent }]}>{formatDateNav(viewDate)}</Text>
+          <Text style={styles.navLabel}>{formatDateNav(viewDate)}</Text>
           {loading && !refreshing && (
             <ActivityIndicator size="small" color={accent} style={{ marginLeft: 6 }} />
           )}
@@ -301,15 +301,11 @@ export default function HomeTab() {
               {GRID_HOURS.map((h, i) => (
                 <Text
                   key={h}
-                  style={[styles.hourLabel, { position: 'absolute', top: i * HOUR_HEIGHT - 5, right: 5 }]}
+                  style={[styles.hourLabel, { position: 'absolute', top: i === 0 ? 1 : i * HOUR_HEIGHT - 5, right: 5 }]}
                 >
                   {formatHour(h)}
                 </Text>
               ))}
-              {/* 8pm label at grid bottom — kept inside grid boundary */}
-              <Text style={[styles.hourLabel, { position: 'absolute', top: GRID_HEIGHT - 14, right: 5 }]}>
-                8pm
-              </Text>
             </View>
 
             {/* Data columns */}
@@ -342,7 +338,9 @@ export default function HomeTab() {
         {/* ── Tasks section ── */}
         <View style={styles.sectionBorder}>
           <View style={{ flexDirection: 'row' }}>
-            <View style={{ width: TIMELINE_W }} />
+            <View style={{ width: TIMELINE_W, alignItems: 'flex-end', paddingRight: 5, justifyContent: 'center' }}>
+              <Text style={styles.hourLabel}>8pm</Text>
+            </View>
             {PERSONS.map(p => (
               <View key={p.key} style={[styles.taskColHead, { backgroundColor: p.light }]}>
                 <Text style={[styles.sectionLabel, { color: p.color }]}>TASKS ›</Text>
@@ -410,7 +408,6 @@ export default function HomeTab() {
           {/* Rewards */}
           <View style={styles.rewardsPane}>
             <Text style={styles.sectionLabel}>REWARDS ›</Text>
-            <View style={styles.rewardsDivider} />
             {['maddie', 'alex'].map(person => {
               const r = rewards[person];
               const color = person === 'maddie' ? COLORS.maddie : COLORS.alex;
@@ -458,9 +455,10 @@ const styles = StyleSheet.create({
   navArrow: { fontSize: 22, color: COLORS.textSecondary, lineHeight: 26 },
   navCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   navLabel: {
-    fontFamily: FONTS.headingBold,
-    fontSize: 11,
-    letterSpacing: 1,
+    fontFamily: FONTS.heading,
+    fontSize: 12,
+    letterSpacing: 0.5,
+    color: COLORS.text,
   },
 
   // Column headers
@@ -667,7 +665,6 @@ const styles = StyleSheet.create({
   },
   rewardBarFill: { height: '100%', borderRadius: 3 },
   rewardPts: { fontFamily: FONTS.body, fontSize: 9, width: 40, textAlign: 'right' },
-  rewardsDivider: { height: 1, backgroundColor: COLORS.border, marginTop: 4, marginBottom: 2 },
 
   // Video Call section
   videoCallSection: {

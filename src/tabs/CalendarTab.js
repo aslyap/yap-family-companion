@@ -15,7 +15,7 @@ import { createCalendarEvent } from '../services/calendarWriteService';
 const { width: SCREEN_W } = Dimensions.get('window');
 const H_PAD      = 12;
 const TIMELINE_W = 40;
-const HOUR_H     = 52;
+const HOUR_H     = 36;
 const GRID_START = 6;
 const GRID_END   = 20;
 const GRID_HOURS = Array.from({ length: GRID_END - GRID_START }, (_, i) => GRID_START + i);
@@ -89,10 +89,13 @@ function getWeekDates(ds) {
 // Returns 42-element array for 6-week Monday-first month grid
 function getMonthGrid(year, month0) {
   const firstDay = new Date(year, month0, 1);
-  const dow = firstDay.getDay(); // 0=Sun
+  const dow = firstDay.getDay();
   const offset = dow === 0 ? -6 : 1 - dow;
   const start = new Date(year, month0, 1 + offset);
-  return Array.from({ length: 42 }, (_, i) => {
+  // Show only enough complete weeks to cover all days of the month
+  const lastDay = new Date(year, month0 + 1, 0);
+  const cells = Math.ceil((Math.abs(offset) + lastDay.getDate()) / 7) * 7;
+  return Array.from({ length: cells }, (_, i) => {
     const d = new Date(start);
     d.setDate(start.getDate() + i);
     return makeDateStr(d);
@@ -119,8 +122,7 @@ function formatTime(iso) {
 
 function formatDateNav(ds) {
   const d = new Date(ds + 'T12:00:00');
-  const t = ds === todayStr() ? 'Today, ' : '';
-  return t + d.toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'long' }).toUpperCase();
+  return d.toLocaleDateString('en-SG', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 function eventTop(isoStart) {
@@ -192,12 +194,13 @@ function PersonAvatar({ person, size = 28 }) {
 
 function TimelineLabels() {
   return (
-    <View style={{ width: TIMELINE_W }}>
-      {GRID_HOURS.map(h => (
-        <View key={h} style={{ height: HOUR_H, justifyContent: 'flex-start', paddingTop: 2 }}>
-          <Text style={styles.hourLabel}>{formatHour(h)}</Text>
-        </View>
+    <View style={{ width: TIMELINE_W, height: GRID_H, position: 'relative' }}>
+      {GRID_HOURS.map((h, i) => (
+        <Text key={h} style={[styles.hourLabel, { position: 'absolute', top: i === 0 ? 1 : i * HOUR_H - 5, right: 4 }]}>
+          {formatHour(h)}
+        </Text>
       ))}
+      <Text style={[styles.hourLabel, { position: 'absolute', bottom: 3, right: 4 }]}>8pm</Text>
     </View>
   );
 }
@@ -362,7 +365,7 @@ function WeekView({ events, weekDates }) {
             {weekDates.map((ds, colIdx) => {
               const dayEvents = eventsOnDate(events, ds).filter(ev => !ev.allDay);
               return (
-                <View key={ds} style={{ width: WEEK_COL_W, position: 'relative' }}>
+                <View key={ds} style={{ width: WEEK_COL_W, position: 'relative', borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: COLORS.border }}>
                   {dayEvents.map(ev => {
                     const top = eventTop(ev.startTime);
                     if (top === null) return null;
@@ -430,7 +433,7 @@ function DayView({ events, dateStr }) {
                 ev => ev.person === p.key && !ev.allDay && makeDateStr(new Date(ev.startTime)) === dateStr
               );
               return (
-                <View key={p.key} style={{ width: DAY_COL_W, position: 'relative' }}>
+                <View key={p.key} style={{ width: DAY_COL_W, position: 'relative', borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: COLORS.border }}>
                   {col.map(ev => {
                     const top = eventTop(ev.startTime);
                     if (top === null) return null;
@@ -654,7 +657,7 @@ function AddEventSheet({ visible, defaultDate, onClose, onSaved }) {
 export default function CalendarTab() {
   const insets = useSafeAreaInsets();
 
-  const [view,         setView]         = useState('month');
+  const [view,         setView]         = useState('day');
   const [selectedDate, setSelectedDate] = useState(() => todayStr());
   const [events,       setEvents]       = useState([]);
   const [loading,      setLoading]      = useState(false);
@@ -725,10 +728,10 @@ export default function CalendarTab() {
   function navLabel() {
     if (view === 'day') return formatDateNav(selectedDate);
     if (view === 'week') {
-      const fmt = ds => new Date(ds + 'T12:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short' });
-      return `${fmt(weekDates[0])} – ${fmt(weekDates[6])}`.toUpperCase();
+      const fmt = ds => new Date(ds + 'T12:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'long' });
+      return `${fmt(weekDates[0])} – ${fmt(weekDates[6])}`;
     }
-    return `${MONTH_NAMES[selMonth0].toUpperCase()} ${selYear}`;
+    return `${MONTH_NAMES[selMonth0]} ${selYear}`;
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -738,7 +741,7 @@ export default function CalendarTab() {
 
       {/* ── View switcher ── */}
       <View style={styles.viewSwitcher}>
-        {['month', 'week', 'day'].map(v => (
+        {['day', 'week', 'month'].map(v => (
           <TouchableOpacity
             key={v}
             style={[styles.switcherTab, view === v && styles.switcherTabActive]}
@@ -881,8 +884,8 @@ const styles = StyleSheet.create({
   },
   navLabel: {
     fontFamily: FONTS.heading,
-    fontSize: 13,
-    letterSpacing: 1,
+    fontSize: 12,
+    letterSpacing: 0.5,
     color: COLORS.text,
   },
 

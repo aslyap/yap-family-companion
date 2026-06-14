@@ -257,7 +257,7 @@ export default function MealsTab() {
       <View style={[styles.headerRow, { borderBottomWidth: 0 }]}>
         <View style={{ width: DAY_COL }} />
         <View style={[styles.groupHeader, { flex: 2, borderLeftWidth: 1, borderLeftColor: COLORS.border }]}>
-          <Text style={styles.groupHeaderText}>BKFST</Text>
+          <Text style={styles.groupHeaderText}>Breakfast</Text>
         </View>
         <View style={[styles.groupHeader, { flex: 2, borderLeftWidth: 1, borderLeftColor: COLORS.border }]}>
           <Text style={styles.groupHeaderText}>LUNCH</Text>
