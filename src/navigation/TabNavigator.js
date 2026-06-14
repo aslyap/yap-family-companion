@@ -52,10 +52,11 @@ export default function TabNavigator() {
             borderBottomWidth: 1,
             elevation: 0,
             shadowOpacity: 0,
+            height: 44,
           },
           headerTitleStyle: {
             fontFamily: 'DMSans_500Medium',
-            fontSize: 17,
+            fontSize: 15,
             color: COLORS.text,
             letterSpacing: 0,
           },

@@ -417,8 +417,10 @@ export default function TasksTab() {
                 <View style={[styles.colHead, { backgroundColor: col.light }]}>
                   <PersonAvatar person={col} />
                   <Text style={[styles.colName, { color: col.color }]} numberOfLines={1}>{col.label.toUpperCase()}</Text>
-                  {col.key !== 'marj' && (
+                  {col.key !== 'marj' ? (
                     <Text style={[styles.colPts, { color: col.color }]}>{pts} pts</Text>
+                  ) : (
+                    <Text style={[styles.colPts, { color: 'transparent' }]}>0 pts</Text>
                   )}
                 </View>
 

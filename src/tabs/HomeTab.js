@@ -301,13 +301,13 @@ export default function HomeTab() {
               {GRID_HOURS.map((h, i) => (
                 <Text
                   key={h}
-                  style={[styles.hourLabel, { position: 'absolute', top: i === 0 ? 2 : i * HOUR_HEIGHT - 5, right: 5 }]}
+                  style={[styles.hourLabel, { position: 'absolute', top: i * HOUR_HEIGHT - 5, right: 5 }]}
                 >
                   {formatHour(h)}
                 </Text>
               ))}
-              {/* 8pm label at grid bottom */}
-              <Text style={[styles.hourLabel, { position: 'absolute', top: GRID_HEIGHT - 5, right: 5 }]}>
+              {/* 8pm label at grid bottom — kept inside grid boundary */}
+              <Text style={[styles.hourLabel, { position: 'absolute', top: GRID_HEIGHT - 14, right: 5 }]}>
                 8pm
               </Text>
             </View>
@@ -377,20 +377,18 @@ export default function HomeTab() {
           <View style={styles.mealPlanLabelRow}>
             <Text style={styles.sectionLabel}>MEAL PLAN ›</Text>
           </View>
-          {/* Column headers */}
+          {/* Column headers — LUNCH spans both Maddie + Alex, no divider between them */}
           <View style={[styles.mealHeaderRow, { borderTopWidth: 1, borderTopColor: COLORS.border }]}>
             <View style={{ width: TIMELINE_W }} />
-            <View style={styles.mealColHead}>
-              <Text style={styles.mealGroupLabel}>LUNCH</Text>
-              <Text style={[styles.mealPersonName, { color: COLORS.maddie }]}>MADDIE</Text>
+            <View style={[styles.mealColHead, { flex: 2, alignItems: 'center' }]}>
+              <Text style={[styles.mealGroupLabel, { textAlign: 'center', width: '100%' }]}>LUNCH</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-around', width: '100%' }}>
+                <Text style={[styles.mealPersonName, { color: COLORS.maddie }]}>MADDIE</Text>
+                <Text style={[styles.mealPersonName, { color: COLORS.alex }]}>ALEX</Text>
+              </View>
             </View>
-            <View style={[styles.mealColHead, styles.mealColBorder]}>
-              <Text style={styles.mealGroupLabel}> </Text>
-              <Text style={[styles.mealPersonName, { color: COLORS.alex }]}>ALEX</Text>
-            </View>
-            <View style={[styles.mealColHead, styles.mealColBorder]}>
-              <Text style={styles.mealGroupLabel}>DINNER</Text>
-              <Text style={styles.mealPersonName}> </Text>
+            <View style={[styles.mealColHead, styles.mealColBorder, { alignItems: 'center' }]}>
+              <Text style={[styles.mealGroupLabel, { textAlign: 'center', width: '100%' }]}>DINNER</Text>
             </View>
           </View>
           {/* Data rows */}
@@ -400,9 +398,9 @@ export default function HomeTab() {
           ].map(({ ds, label }) => (
             <View key={ds} style={styles.mealDataRow}>
               <Text style={styles.mealDateLabel}>{label}</Text>
-              <Text style={styles.mealCell} numberOfLines={1}>{mealFor(ds, 'maddie', 'lunch')}</Text>
-              <Text style={[styles.mealCell, styles.mealColBorder]} numberOfLines={1}>{mealFor(ds, 'alex', 'lunch')}</Text>
-              <Text style={[styles.mealCell, styles.mealColBorder]} numberOfLines={1}>{dinnerFor(ds)}</Text>
+              <Text style={[styles.mealCell, { textAlign: 'center' }]} numberOfLines={1}>{mealFor(ds, 'maddie', 'lunch')}</Text>
+              <Text style={[styles.mealCell, { textAlign: 'center' }]} numberOfLines={1}>{mealFor(ds, 'alex', 'lunch')}</Text>
+              <Text style={[styles.mealCell, styles.mealColBorder, { textAlign: 'center' }]} numberOfLines={1}>{dinnerFor(ds)}</Text>
             </View>
           ))}
         </View>
@@ -412,6 +410,7 @@ export default function HomeTab() {
           {/* Rewards */}
           <View style={styles.rewardsPane}>
             <Text style={styles.sectionLabel}>REWARDS ›</Text>
+            <View style={styles.rewardsDivider} />
             {['maddie', 'alex'].map(person => {
               const r = rewards[person];
               const color = person === 'maddie' ? COLORS.maddie : COLORS.alex;
@@ -668,6 +667,7 @@ const styles = StyleSheet.create({
   },
   rewardBarFill: { height: '100%', borderRadius: 3 },
   rewardPts: { fontFamily: FONTS.body, fontSize: 9, width: 40, textAlign: 'right' },
+  rewardsDivider: { height: 1, backgroundColor: COLORS.border, marginTop: 4, marginBottom: 2 },
 
   // Video Call section
   videoCallSection: {

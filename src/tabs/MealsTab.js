@@ -2,7 +2,7 @@ import React, { useCallback, useReducer, useState, useEffect, useMemo } from 're
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Modal, TextInput, Pressable, ActivityIndicator,
-  RefreshControl, KeyboardAvoidingView, Platform,
+  RefreshControl, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONTS } from '../theme';
@@ -19,12 +19,31 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 //   ALTER TABLE meals ADD CONSTRAINT meals_meal_type_check
 //     CHECK (meal_type IN ('breakfast','lunch','dinner'));
 const MEAL_COLS = [
-  { id: 'b-m', mealType: 'breakfast', person: 'maddie', groupLabel: 'BKFST', subLabel: 'MADDIE', color: COLORS.maddie, light: COLORS.maddieLight },
-  { id: 'b-a', mealType: 'breakfast', person: 'alex',   groupLabel: '',       subLabel: 'ALEX',   color: COLORS.alex,   light: COLORS.alexLight   },
-  { id: 'l-m', mealType: 'lunch',     person: 'maddie', groupLabel: 'LUNCH',  subLabel: 'MADDIE', color: COLORS.maddie, light: COLORS.maddieLight },
-  { id: 'l-a', mealType: 'lunch',     person: 'alex',   groupLabel: '',       subLabel: 'ALEX',   color: COLORS.alex,   light: COLORS.alexLight   },
-  { id: 'd',   mealType: 'dinner',    person: 'family', groupLabel: 'DINNER', subLabel: '',       color: COLORS.family, light: COLORS.familyLight  },
+  { id: 'b-m', mealType: 'breakfast', person: 'maddie', groupLabel: 'Breakfast', subLabel: 'MADDIE', color: COLORS.maddie, light: COLORS.maddieLight,
+    avatarUri: 'https://yap-family-home.vercel.app/avatars/Maddie.jpg' },
+  { id: 'b-a', mealType: 'breakfast', person: 'alex',   groupLabel: '',          subLabel: 'ALEX',   color: COLORS.alex,   light: COLORS.alexLight,
+    avatarUri: 'https://yap-family-home.vercel.app/avatars/Alex.jpg'   },
+  { id: 'l-m', mealType: 'lunch',     person: 'maddie', groupLabel: 'Lunch',     subLabel: 'MADDIE', color: COLORS.maddie, light: COLORS.maddieLight,
+    avatarUri: 'https://yap-family-home.vercel.app/avatars/Maddie.jpg' },
+  { id: 'l-a', mealType: 'lunch',     person: 'alex',   groupLabel: '',          subLabel: 'ALEX',   color: COLORS.alex,   light: COLORS.alexLight,
+    avatarUri: 'https://yap-family-home.vercel.app/avatars/Alex.jpg'   },
+  { id: 'd',   mealType: 'dinner',    person: 'family', groupLabel: 'Dinner',    subLabel: '',       color: COLORS.family, light: COLORS.familyLight,
+    avatarUri: null },
 ];
+
+// ─── MealPersonAvatar ─────────────────────────────────────────────────────────
+
+function MealPersonAvatar({ col }) {
+  const [err, setErr] = useState(false);
+  if (!col.avatarUri || err) {
+    return (
+      <View style={[styles.mealAvatar, { backgroundColor: col.color }]}>
+        <Text style={styles.mealAvatarText}>{col.subLabel[0]}</Text>
+      </View>
+    );
+  }
+  return <Image source={{ uri: col.avatarUri }} style={styles.mealAvatar} onError={() => setErr(true)} />;
+}
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -248,11 +267,12 @@ export default function MealsTab() {
         </View>
       </View>
 
-      {/* Column header row 2: person sub-labels */}
+      {/* Column header row 2: person sub-labels with avatars */}
       <View style={styles.headerRow}>
         <View style={{ width: DAY_COL }} />
         {MEAL_COLS.map(col => (
           <View key={col.id} style={[styles.personHeader, { backgroundColor: col.light }]}>
+            {col.subLabel ? <MealPersonAvatar col={col} /> : null}
             <Text style={[styles.personHeaderText, { color: col.color }]}>{col.subLabel}</Text>
           </View>
         ))}
@@ -352,7 +372,7 @@ const styles = StyleSheet.create({
   personHeader: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 3,
+    paddingVertical: 5,
     borderLeftWidth: 1,
     borderLeftColor: COLORS.border,
   },
@@ -361,6 +381,19 @@ const styles = StyleSheet.create({
     fontSize: 8,
     letterSpacing: 0.3,
     textTransform: 'uppercase',
+    marginTop: 2,
+  },
+  mealAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mealAvatarText: {
+    fontFamily: FONTS.headingBold,
+    fontSize: 10,
+    color: '#fff',
   },
 
   scroll: { flex: 1 },
