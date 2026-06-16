@@ -1,6 +1,6 @@
 import { BACKEND_URL } from '../config';
 
-const CACHE_TTL_MS = 15 * 60 * 1000;
+const CACHE_TTL_MS = 2 * 60 * 1000;
 const _cache = {};
 
 function cacheKey(start, end) {
