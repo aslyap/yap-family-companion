@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useStreamVideoClient } from '@stream-io/video-react-native-sdk';
 import { useIdentity } from '../contexts/IdentityContext';
 import { COLORS, FONTS, getAccentColor } from '../theme';
@@ -223,6 +223,12 @@ export default function HomeTab() {
   }, [viewDate]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Re-fetch tasks + meals when returning to this tab (e.g. after adding a task)
+  useFocusEffect(useCallback(() => {
+    fetchTasks().then(d => setTasks(d)).catch(() => {});
+    fetchMealsForDates([viewDate]).then(d => setMeals(d)).catch(() => {});
+  }, [viewDate]));
 
   function onRefresh() { setRefreshing(true); load(); }
 
