@@ -192,26 +192,34 @@ function PersonAvatar({ person, size = 28 }) {
 // ─── TimelineGrid ─────────────────────────────────────────────────────────────
 // Shared left-label + horizontal line column
 
+// GRID_HOURS goes 6…19; we also render an 8pm (h=20) label at the bottom grid line.
+const TIMELINE_HOURS = [...GRID_HOURS, GRID_END];
+
 function TimelineLabels() {
   return (
-    <View style={{ width: TIMELINE_W, height: GRID_H, position: 'relative' }}>
-      {GRID_HOURS.map((h, i) => (
-        <Text key={h} style={[styles.hourLabel, { position: 'absolute', top: i === 0 ? 1 : i * HOUR_H - 5, right: 4 }]}>
-          {formatHour(h)}
-        </Text>
-      ))}
-      <Text style={[styles.hourLabel, { position: 'absolute', bottom: 3, right: 4 }]}>8pm</Text>
+    <View style={{ width: TIMELINE_W, height: GRID_H, position: 'relative', overflow: 'visible' }}>
+      {TIMELINE_HOURS.map((h, i) => {
+        // Clamp 6am to top:1 so it doesn't clip in the ScrollView;
+        // all other labels are centred on their line (top = i*HOUR_H - half-lineHeight).
+        const top = i === 0 ? 1 : i * HOUR_H - 5;
+        return (
+          <Text key={h} style={[styles.hourLabel, { position: 'absolute', top, right: 4 }]}>
+            {formatHour(h)}
+          </Text>
+        );
+      })}
     </View>
   );
 }
 
-function GridLines({ colCount, colWidth }) {
+function GridLines() {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {GRID_HOURS.map((_, i) => i > 0 && (
+      {/* Full-hour lines including 6am (top) and 8pm (bottom) */}
+      {TIMELINE_HOURS.map((_, i) => (
         <View key={i} style={[styles.gridLine, { top: i * HOUR_H }]} />
       ))}
-      {/* half-hour marks */}
+      {/* Half-hour marks */}
       {GRID_HOURS.map((_, i) => (
         <View key={`h${i}`} style={[styles.gridLineHalf, { top: i * HOUR_H + HOUR_H / 2 }]} />
       ))}

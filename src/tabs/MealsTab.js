@@ -28,7 +28,13 @@ const MEAL_COLS = [
   { id: 'l-a', mealType: 'lunch',     person: 'alex',   groupLabel: '',          subLabel: 'ALEX',   color: COLORS.alex,   light: COLORS.alexLight,
     avatarUri: 'https://yap-family-home.vercel.app/avatars/Alex.jpg',   groupStart: false },
   { id: 'd',   mealType: 'dinner',    person: 'family', groupLabel: 'Dinner',    subLabel: '',       color: COLORS.family, light: COLORS.familyLight,
-    avatarUri: null, groupStart: true },
+    avatarUri: null, groupStart: true,
+    // Dinner shows both kids' avatars
+    dinnerAvatars: [
+      { uri: 'https://yap-family-home.vercel.app/avatars/Maddie.jpg', color: COLORS.maddie, label: 'M' },
+      { uri: 'https://yap-family-home.vercel.app/avatars/Alex.jpg',   color: COLORS.alex,   label: 'A' },
+    ],
+  },
 ];
 
 // ─── MealPersonAvatar ─────────────────────────────────────────────────────────
@@ -43,6 +49,24 @@ function MealPersonAvatar({ col }) {
     );
   }
   return <Image source={{ uri: col.avatarUri }} style={styles.mealAvatar} onError={() => setErr(true)} />;
+}
+
+function DinnerAvatar({ uri, color, label }) {
+  const [err, setErr] = useState(false);
+  if (!uri || err) {
+    return (
+      <View style={[styles.mealAvatar, { backgroundColor: color, marginHorizontal: -4 }]}>
+        <Text style={styles.mealAvatarText}>{label}</Text>
+      </View>
+    );
+  }
+  return (
+    <Image
+      source={{ uri }}
+      style={[styles.mealAvatar, { marginHorizontal: -4 }]}
+      onError={() => setErr(true)}
+    />
+  );
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -267,13 +291,23 @@ export default function MealsTab() {
         </View>
       </View>
 
-      {/* Column header row 2: person sub-labels with avatars */}
+      {/* Column header row 2: person sub-labels with avatars (no background shading) */}
       <View style={styles.headerRow}>
         <View style={{ width: DAY_COL }} />
         {MEAL_COLS.map(col => (
-          <View key={col.id} style={[styles.personHeader, { backgroundColor: col.light, borderLeftWidth: col.groupStart ? 1 : 0 }]}>
-            {col.subLabel ? <MealPersonAvatar col={col} /> : null}
-            <Text style={[styles.personHeaderText, { color: col.color }]}>{col.subLabel}</Text>
+          <View key={col.id} style={[styles.personHeader, { borderLeftWidth: col.groupStart ? 1 : 0 }]}>
+            {col.dinnerAvatars ? (
+              <View style={styles.dinnerAvatarRow}>
+                {col.dinnerAvatars.map((av, i) => (
+                  <DinnerAvatar key={i} uri={av.uri} color={av.color} label={av.label} />
+                ))}
+              </View>
+            ) : col.subLabel ? (
+              <MealPersonAvatar col={col} />
+            ) : null}
+            {col.subLabel ? (
+              <Text style={[styles.personHeaderText, { color: col.color }]}>{col.subLabel}</Text>
+            ) : null}
           </View>
         ))}
       </View>
@@ -375,6 +409,12 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderLeftWidth: 1,
     borderLeftColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  dinnerAvatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
   },
   personHeaderText: {
     fontFamily: FONTS.heading,

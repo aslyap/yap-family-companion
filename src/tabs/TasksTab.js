@@ -403,9 +403,10 @@ export default function TasksTab() {
       {/* 3-column grid */}
       <ScrollView
         style={styles.scroll}
+        contentContainerStyle={{ flexGrow: 1 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        <View style={styles.cols}>
+        <View style={[styles.cols, { flex: 1 }]}>
           {PERSONS.map(col => {
             const colTasks = tasksFor(col.key);
             const pts = totalPtsFor(col.key);
@@ -508,7 +509,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRightWidth: 1,
     borderRightColor: COLORS.border,
-    paddingBottom: 80,
+    paddingBottom: 100,
   },
   colHead: {
     alignItems: 'center',

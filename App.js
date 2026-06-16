@@ -2,13 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, ActivityIndicator, AppState, Platform, PermissionsAndroid, StyleSheet } from 'react-native';
 import { useFonts } from 'expo-font';
 import {
-  JosefinSans_600SemiBold,
-  JosefinSans_700Bold,
-} from '@expo-google-fonts/josefin-sans';
-import {
-  DMSans_400Regular,
-  DMSans_500Medium,
-} from '@expo-google-fonts/dm-sans';
+  Figtree_400Regular,
+  Figtree_500Medium,
+  Figtree_600SemiBold,
+  Figtree_700Bold,
+} from '@expo-google-fonts/figtree';
 import {
   StreamVideo,
   StreamCall,
@@ -144,10 +142,10 @@ function StreamWrapper({ children }) {
 
 export default function App() {
   const [fontsLoaded] = useFonts({
-    JosefinSans_600SemiBold,
-    JosefinSans_700Bold,
-    DMSans_400Regular,
-    DMSans_500Medium,
+    Figtree_400Regular,
+    Figtree_500Medium,
+    Figtree_600SemiBold,
+    Figtree_700Bold,
   });
 
   if (!fontsLoaded) {

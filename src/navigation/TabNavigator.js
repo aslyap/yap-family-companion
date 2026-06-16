@@ -42,7 +42,7 @@ export default function TabNavigator() {
             borderTopColor: COLORS.border,
           },
           tabBarLabelStyle: {
-            fontFamily: 'JosefinSans_600SemiBold',
+            fontFamily: 'Figtree_600SemiBold',
             fontSize: 10,
             letterSpacing: 0.3,
           },
@@ -55,7 +55,7 @@ export default function TabNavigator() {
             height: 52,
           },
           headerTitleStyle: {
-            fontFamily: 'JosefinSans_700Bold',
+            fontFamily: 'Figtree_700Bold',
             fontSize: 13,
             color: COLORS.text,
             letterSpacing: 0.5,
@@ -74,7 +74,12 @@ export default function TabNavigator() {
       }}
     >
       {TAB_CONFIG.map(({ name, Component }) => (
-        <Tab.Screen key={name} name={name} component={Component} />
+        <Tab.Screen
+          key={name}
+          name={name}
+          component={Component}
+          options={name === 'Home' ? { headerShown: false } : undefined}
+        />
       ))}
     </Tab.Navigator>
   );

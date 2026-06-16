@@ -20,10 +20,10 @@ export const COLORS = {
 };
 
 export const FONTS = {
-  heading: 'JosefinSans_600SemiBold',
-  headingBold: 'JosefinSans_700Bold',
-  body: 'DMSans_400Regular',
-  bodyMedium: 'DMSans_500Medium',
+  heading: 'Figtree_600SemiBold',
+  headingBold: 'Figtree_700Bold',
+  body: 'Figtree_400Regular',
+  bodyMedium: 'Figtree_500Medium',
 };
 
 export const getAccentColor = (identity) =>
