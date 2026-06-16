@@ -20,15 +20,15 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 //     CHECK (meal_type IN ('breakfast','lunch','dinner'));
 const MEAL_COLS = [
   { id: 'b-m', mealType: 'breakfast', person: 'maddie', groupLabel: 'Breakfast', subLabel: 'MADDIE', color: COLORS.maddie, light: COLORS.maddieLight,
-    avatarUri: 'https://yap-family-home.vercel.app/avatars/Maddie.jpg' },
+    avatarUri: 'https://yap-family-home.vercel.app/avatars/Maddie.jpg', groupStart: true },
   { id: 'b-a', mealType: 'breakfast', person: 'alex',   groupLabel: '',          subLabel: 'ALEX',   color: COLORS.alex,   light: COLORS.alexLight,
-    avatarUri: 'https://yap-family-home.vercel.app/avatars/Alex.jpg'   },
+    avatarUri: 'https://yap-family-home.vercel.app/avatars/Alex.jpg',   groupStart: false },
   { id: 'l-m', mealType: 'lunch',     person: 'maddie', groupLabel: 'Lunch',     subLabel: 'MADDIE', color: COLORS.maddie, light: COLORS.maddieLight,
-    avatarUri: 'https://yap-family-home.vercel.app/avatars/Maddie.jpg' },
+    avatarUri: 'https://yap-family-home.vercel.app/avatars/Maddie.jpg', groupStart: true },
   { id: 'l-a', mealType: 'lunch',     person: 'alex',   groupLabel: '',          subLabel: 'ALEX',   color: COLORS.alex,   light: COLORS.alexLight,
-    avatarUri: 'https://yap-family-home.vercel.app/avatars/Alex.jpg'   },
+    avatarUri: 'https://yap-family-home.vercel.app/avatars/Alex.jpg',   groupStart: false },
   { id: 'd',   mealType: 'dinner',    person: 'family', groupLabel: 'Dinner',    subLabel: '',       color: COLORS.family, light: COLORS.familyLight,
-    avatarUri: null },
+    avatarUri: null, groupStart: true },
 ];
 
 // ─── MealPersonAvatar ─────────────────────────────────────────────────────────
@@ -271,7 +271,7 @@ export default function MealsTab() {
       <View style={styles.headerRow}>
         <View style={{ width: DAY_COL }} />
         {MEAL_COLS.map(col => (
-          <View key={col.id} style={[styles.personHeader, { backgroundColor: col.light }]}>
+          <View key={col.id} style={[styles.personHeader, { backgroundColor: col.light, borderLeftWidth: col.groupStart ? 1 : 0 }]}>
             {col.subLabel ? <MealPersonAvatar col={col} /> : null}
             <Text style={[styles.personHeaderText, { color: col.color }]}>{col.subLabel}</Text>
           </View>
@@ -297,7 +297,7 @@ export default function MealsTab() {
                 return (
                   <TouchableOpacity
                     key={col.id}
-                    style={styles.mealCell}
+                    style={[styles.mealCell, { borderLeftWidth: col.groupStart ? 1 : 0 }]}
                     onPress={() => openEdit(col, ds)}
                     activeOpacity={0.7}
                   >
@@ -306,7 +306,7 @@ export default function MealsTab() {
                         {meal.dish_name}
                       </Text>
                     ) : (
-                      <Text style={styles.emptyPlus}>+</Text>
+                      <Text style={styles.emptyPlus}>–</Text>
                     )}
                   </TouchableOpacity>
                 );
@@ -344,13 +344,13 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.border,
   },
   navBtn: { width: 44, height: 34, alignItems: 'center', justifyContent: 'center' },
-  navArrow: { fontSize: 22, color: COLORS.textSecondary, lineHeight: 26 },
+  navArrow: { fontSize: 22, color: COLORS.adrian, lineHeight: 26 },
   navCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   navLabel: {
     fontFamily: FONTS.heading,
     fontSize: 12,
     letterSpacing: 0.5,
-    color: COLORS.text,
+    color: COLORS.adrian,
   },
 
   headerRow: {
@@ -405,7 +405,7 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.border,
   },
   dayRowToday: {
-    backgroundColor: '#FAFAF8',
+    backgroundColor: '#EBF4FB',
   },
   dayLabelCol: {
     width: DAY_COL,
@@ -415,14 +415,13 @@ const styles = StyleSheet.create({
     borderRightColor: COLORS.border,
   },
   dayLabel: {
-    fontFamily: FONTS.heading,
-    fontSize: 9,
-    letterSpacing: 0.3,
+    fontFamily: FONTS.body,
+    fontSize: 10,
+    letterSpacing: 0,
     color: COLORS.textSecondary,
-    textTransform: 'uppercase',
   },
   dayLabelToday: {
-    fontFamily: FONTS.headingBold,
+    fontFamily: FONTS.bodyMedium,
     color: COLORS.text,
   },
   mealCell: {

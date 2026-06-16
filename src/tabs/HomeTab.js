@@ -308,8 +308,8 @@ export default function HomeTab() {
             {/* Data columns */}
             {PERSONS.map(p => (
               <View key={p.key} style={styles.gridCol}>
-                {/* Full-hour lines */}
-                {GRID_HOURS.map((_, i) => (
+                {/* Full-hour lines — skip i=0 to avoid double-line at grid top */}
+                {GRID_HOURS.map((_, i) => i > 0 && (
                   <View key={i} style={[styles.hourLine, { top: i * HOUR_HEIGHT }]} />
                 ))}
                 {/* Half-hour lines */}
@@ -333,7 +333,7 @@ export default function HomeTab() {
         </View>
 
         {/* ── Tasks section ── */}
-        <View style={styles.sectionBorder}>
+        <View>
           <View style={{ flexDirection: 'row' }}>
             <View style={{ width: TIMELINE_W, alignItems: 'flex-end', paddingRight: 5, justifyContent: 'center' }}>
               <Text style={styles.hourLabel}>8pm</Text>
@@ -444,13 +444,13 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   navBtn: { width: 44, height: 34, alignItems: 'center', justifyContent: 'center' },
-  navArrow: { fontSize: 22, color: COLORS.textSecondary, lineHeight: 26 },
+  navArrow: { fontSize: 22, color: COLORS.adrian, lineHeight: 26 },
   navCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   navLabel: {
     fontFamily: FONTS.heading,
     fontSize: 12,
     letterSpacing: 0.5,
-    color: COLORS.text,
+    color: COLORS.adrian,
   },
 
   // Column headers

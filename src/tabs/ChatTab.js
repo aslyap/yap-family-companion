@@ -348,7 +348,7 @@ export default function ChatTab() {
         <View style={{ height: 8 }} />
       </ScrollView>
 
-      <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      <View style={[styles.bar, { paddingBottom: 8 }]}>
         <TouchableOpacity
           style={styles.micBtn}
           activeOpacity={0.7}

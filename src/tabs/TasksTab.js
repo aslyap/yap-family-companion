@@ -485,7 +485,7 @@ const styles = StyleSheet.create({
   },
   navArrow: {
     fontSize: 24,
-    color: COLORS.textSecondary,
+    color: COLORS.adrian,
     lineHeight: 28,
   },
   navCenter: {
@@ -498,7 +498,7 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.heading,
     fontSize: 12,
     letterSpacing: 0.5,
-    color: COLORS.text,
+    color: COLORS.adrian,
   },
 
   // Grid

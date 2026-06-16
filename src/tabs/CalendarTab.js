@@ -15,7 +15,7 @@ import { createCalendarEvent } from '../services/calendarWriteService';
 const { width: SCREEN_W } = Dimensions.get('window');
 const H_PAD      = 12;
 const TIMELINE_W = 40;
-const HOUR_H     = 36;
+const HOUR_H     = 30;
 const GRID_START = 6;
 const GRID_END   = 20;
 const GRID_HOURS = Array.from({ length: GRID_END - GRID_START }, (_, i) => GRID_START + i);
@@ -208,7 +208,7 @@ function TimelineLabels() {
 function GridLines({ colCount, colWidth }) {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {GRID_HOURS.map((_, i) => (
+      {GRID_HOURS.map((_, i) => i > 0 && (
         <View key={i} style={[styles.gridLine, { top: i * HOUR_H }]} />
       ))}
       {/* half-hour marks */}
@@ -405,7 +405,7 @@ function DayView({ events, dateStr }) {
   const scrollRef = useRef(null);
 
   useEffect(() => {
-    setTimeout(() => scrollRef.current?.scrollTo({ y: (8 - GRID_START) * HOUR_H, animated: false }), 100);
+    setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: false }), 100);
   }, [dateStr]);
 
   return (
@@ -879,14 +879,14 @@ const styles = StyleSheet.create({
   navArrow: {
     fontFamily: FONTS.body,
     fontSize: 22,
-    color: COLORS.text,
+    color: COLORS.adrian,
     lineHeight: 26,
   },
   navLabel: {
     fontFamily: FONTS.heading,
     fontSize: 12,
     letterSpacing: 0.5,
-    color: COLORS.text,
+    color: COLORS.adrian,
   },
 
   // ── timeline ──
