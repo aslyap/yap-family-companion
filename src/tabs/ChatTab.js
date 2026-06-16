@@ -361,7 +361,7 @@ export default function ChatTab() {
           style={styles.inp}
           value={input}
           onChangeText={setInput}
-          placeholder="Message Claude…"
+          placeholder="Ask the family assistant…"
           placeholderTextColor={COLORS.textSecondary}
           multiline
           maxLength={500}
