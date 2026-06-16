@@ -119,14 +119,14 @@ function EventBlock({ event, color, light }) {
   const height = Math.min(eventHeight(event.startTime, event.endTime), GRID_HEIGHT - top);
   return (
     <View style={[styles.eventBlock, { top, height, backgroundColor: light, borderLeftColor: color }]}>
-      <Text style={[styles.eventTimeText, { color }]} numberOfLines={1}>
-        {formatEventTime(event.startTime)}
+      <Text style={[styles.eventTitleText, { color }]} numberOfLines={1}>
+        {event.title}
       </Text>
-      {height > 20 && (
-        <Text style={[styles.eventTitleText, { color }]} numberOfLines={2}>
-          {event.title}
+      {height > 20 && event.location ? (
+        <Text style={[styles.eventTimeText, { color }]} numberOfLines={1}>
+          {event.location}
         </Text>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -211,6 +211,12 @@ export default function HomeTab() {
       if (evData.status   === 'fulfilled') setEvents(evData.value);
       if (taskData.status === 'fulfilled') setTasks(taskData.value);
       if (mealData.status === 'fulfilled') setMeals(mealData.value);
+      // Silent retry if calendar failed (backend cold-start)
+      if (evData.status !== 'fulfilled') {
+        setTimeout(async () => {
+          try { setEvents(await fetchCalendarEvents(viewDate)); } catch {}
+        }, 4000);
+      }
     } catch {}
     setLoading(false);
     setRefreshing(false);

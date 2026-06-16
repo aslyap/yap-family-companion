@@ -698,7 +698,14 @@ export default function CalendarTab() {
     if (!quiet) setLoading(true);
     try {
       const { start, end } = fetchRange();
-      const data = await fetchCalendarEventsForRange(start, end);
+      let data;
+      try {
+        data = await fetchCalendarEventsForRange(start, end);
+      } catch {
+        // Silent retry after 4s (backend cold-start)
+        await new Promise(r => setTimeout(r, 4000));
+        data = await fetchCalendarEventsForRange(start, end);
+      }
       setEvents(data);
     } catch (e) {
       console.warn('Calendar fetch error:', e.message);
