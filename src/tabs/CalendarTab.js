@@ -201,7 +201,7 @@ function TimelineLabels() {
       {TIMELINE_HOURS.map((h, i) => {
         // Clamp 6am to top:1 so it doesn't clip in the ScrollView;
         // all other labels are centred on their line (top = i*HOUR_H - half-lineHeight).
-        const top = i === 0 ? 1 : i * HOUR_H - 5;
+        const top = i === 0 ? -4 : i * HOUR_H - 5;
         return (
           <Text key={h} style={[styles.hourLabel, { position: 'absolute', top, right: 4 }]}>
             {formatHour(h)}
@@ -891,7 +891,7 @@ const styles = StyleSheet.create({
     lineHeight: 26,
   },
   navLabel: {
-    fontFamily: FONTS.heading,
+    fontFamily: FONTS.headingBold,
     fontSize: 12,
     letterSpacing: 0.5,
     color: COLORS.adrian,

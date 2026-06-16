@@ -286,39 +286,33 @@ export default function HomeTab() {
         </TouchableOpacity>
       </View>
 
-      {/* ── Column headers (tappable → Calendar tab) ── */}
-      <TouchableOpacity
-        activeOpacity={0.85}
-        onPress={() => navigation.navigate('Calendar')}
-      >
-        <View style={styles.colHeaderRow}>
-          <View style={{ width: TIMELINE_W }} />
-          {PERSONS.map(p => (
-            <View key={p.key} style={[styles.colHeader, { backgroundColor: p.light }]}>
-              <PersonAvatar person={p} />
-              <Text style={[styles.colName, { color: p.color }]}>{p.label.toUpperCase()}</Text>
-            </View>
-          ))}
-        </View>
-      </TouchableOpacity>
-
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={{ paddingBottom: 4 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={accent} />}
       >
-        {/* ── Calendar grid (tappable → Calendar tab) ── */}
+        {/* ── Calendar section (avatars + grid, tappable → Calendar tab) ── */}
         <TouchableOpacity
           activeOpacity={0.95}
           onPress={() => navigation.navigate('Calendar')}
         >
+          {/* Column headers inside scroll so 6am label has room above the grid */}
+          <View style={styles.colHeaderRow}>
+            <View style={{ width: TIMELINE_W }} />
+            {PERSONS.map(p => (
+              <View key={p.key} style={[styles.colHeader, { backgroundColor: p.light }]}>
+                <PersonAvatar person={p} />
+                <Text style={[styles.colName, { color: p.color }]}>{p.label.toUpperCase()}</Text>
+              </View>
+            ))}
+          </View>
           <View style={{ position: 'relative' }}>
             <View style={{ flexDirection: 'row', height: GRID_HEIGHT }}>
 
               {/* Hour labels — include 8pm via extended GRID_HOURS */}
               <View style={{ width: TIMELINE_W, height: GRID_HEIGHT, position: 'relative', overflow: 'visible' }}>
                 {GRID_HOURS.map((h, i) => {
-                  const top = i === 0 ? 1 : i * HOUR_HEIGHT - 5;
+                  const top = i === 0 ? -4 : i * HOUR_HEIGHT - 5;
                   return (
                     <Text key={h} style={[styles.hourLabel, { position: 'absolute', top, right: 5 }]}>
                       {formatHour(h)}
@@ -363,12 +357,11 @@ export default function HomeTab() {
           onPress={() => navigation.navigate('Tasks')}
         >
           <View>
-            {/* Tasks header row */}
-            <View style={[styles.sectionBorder, { flexDirection: 'row' }]}>
-              <View style={{ width: TIMELINE_W, alignItems: 'flex-end', paddingRight: 5, justifyContent: 'center', paddingVertical: 4 }}>
-              </View>
+            {/* Tasks header — border starts at TIMELINE_W so it doesn't cross the 8pm label */}
+            <View style={{ flexDirection: 'row' }}>
+              <View style={{ width: TIMELINE_W }} />
               {PERSONS.map(p => (
-                <View key={p.key} style={[styles.taskColHead, { borderLeftWidth: 1, borderLeftColor: COLORS.border }]}>
+                <View key={p.key} style={styles.taskColHead}>
                   <Text style={[styles.sectionLabel, { color: p.color }]}>TASKS ›</Text>
                 </View>
               ))}
@@ -384,8 +377,13 @@ export default function HomeTab() {
                       <Text style={styles.emptyHint}>—</Text>
                     ) : colTasks.map(t => (
                       <View key={t.id} style={styles.taskRow}>
-                        <View style={[styles.taskDot, { backgroundColor: t.done ? p.color : COLORS.border }]} />
-                        <Text style={[styles.taskTitle, t.done && styles.taskDone]} numberOfLines={2}>
+                        <View style={[styles.taskCheckbox, {
+                          borderColor: p.color,
+                          backgroundColor: t.done ? p.color : 'transparent',
+                        }]}>
+                          {t.done && <Text style={styles.taskCheckMark}>✓</Text>}
+                        </View>
+                        <Text style={[styles.taskTitle, { color: t.done ? COLORS.textSecondary : p.color }, t.done && styles.taskDone]} numberOfLines={2}>
                           {t.title}{t.recurring ? ' ↻' : ''}
                         </Text>
                       </View>
@@ -407,22 +405,24 @@ export default function HomeTab() {
             <View style={styles.mealPlanLabelRow}>
               <Text style={styles.sectionLabel}>MEAL PLAN ›</Text>
             </View>
-            {/* Column headers */}
+            {/* Column headers — LUNCH spans both Maddie + Alex */}
             <View style={[styles.mealHeaderRow, { borderTopWidth: 1, borderTopColor: COLORS.border }]}>
               <View style={{ width: TIMELINE_W }} />
-              {/* Maddie lunch */}
-              <View style={[styles.mealColHead, { borderLeftWidth: 1, borderLeftColor: COLORS.border }]}>
-                <Text style={[styles.mealPersonName, { color: COLORS.maddie }]}>LUNCH</Text>
-                <Text style={[styles.mealPersonSub, { color: COLORS.maddie }]}>MADDIE</Text>
-              </View>
-              {/* Alex lunch */}
-              <View style={[styles.mealColHead, { borderLeftWidth: 0 }]}>
-                <Text style={[styles.mealPersonName, { color: COLORS.alex }]}>LUNCH</Text>
-                <Text style={[styles.mealPersonSub, { color: COLORS.alex }]}>ALEX</Text>
+              {/* Lunch group: flex:2 to match Maddie+Alex data cells below */}
+              <View style={{ flex: 2, borderLeftWidth: 1, borderLeftColor: COLORS.border }}>
+                <Text style={styles.mealGroupLabel}>LUNCH</Text>
+                <View style={{ flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border }}>
+                  <View style={{ flex: 1, paddingVertical: 2, alignItems: 'center' }}>
+                    <Text style={[styles.mealPersonSub, { color: COLORS.maddie }]}>MADDIE</Text>
+                  </View>
+                  <View style={{ flex: 1, paddingVertical: 2, alignItems: 'center', borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: COLORS.border }}>
+                    <Text style={[styles.mealPersonSub, { color: COLORS.alex }]}>ALEX</Text>
+                  </View>
+                </View>
               </View>
               {/* Dinner */}
-              <View style={[styles.mealColHead, { borderLeftWidth: 1, borderLeftColor: COLORS.border }]}>
-                <Text style={[styles.mealPersonName, { color: COLORS.family }]}>DINNER</Text>
+              <View style={{ flex: 1, borderLeftWidth: 1, borderLeftColor: COLORS.border, alignItems: 'center', justifyContent: 'center', paddingVertical: 4 }}>
+                <Text style={styles.mealGroupLabel}>DINNER</Text>
               </View>
             </View>
             {/* Data row */}
@@ -493,7 +493,7 @@ const styles = StyleSheet.create({
   navArrow: { fontSize: 22, color: COLORS.adrian, lineHeight: 26 },
   navCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   navLabel: {
-    fontFamily: FONTS.heading,
+    fontFamily: FONTS.headingBold,
     fontSize: 12,
     letterSpacing: 0.5,
     color: COLORS.adrian,
@@ -592,6 +592,10 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 5,
     paddingVertical: 5,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    borderLeftWidth: 1,
+    borderLeftColor: COLORS.border,
   },
   taskColBody: {
     flex: 1,
@@ -601,10 +605,24 @@ const styles = StyleSheet.create({
     paddingTop: 3,
     paddingBottom: 6,
   },
-  taskRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 3, gap: 3 },
-  taskDot: { width: 5, height: 5, borderRadius: 3, marginTop: 4, flexShrink: 0 },
-  taskTitle: { fontFamily: FONTS.body, fontSize: 9, color: COLORS.text, flex: 1, lineHeight: 13 },
-  taskDone: { color: COLORS.textSecondary, textDecorationLine: 'line-through' },
+  taskRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 3, gap: 3 },
+  taskCheckbox: {
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  taskCheckMark: {
+    fontSize: 7,
+    color: '#fff',
+    fontFamily: FONTS.bodyMedium,
+    lineHeight: 9,
+  },
+  taskTitle: { fontFamily: FONTS.body, fontSize: 9, flex: 1, lineHeight: 13 },
+  taskDone: { textDecorationLine: 'line-through' },
   emptyHint: {
     fontFamily: FONTS.body, fontSize: 10, color: COLORS.textSecondary,
     textAlign: 'center', marginTop: 6,
@@ -626,11 +644,14 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     alignItems: 'center',
   },
-  mealPersonName: {
+  mealGroupLabel: {
     fontFamily: FONTS.heading,
     fontSize: 8,
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    paddingTop: 3,
+    paddingBottom: 1,
   },
   mealPersonSub: {
     fontFamily: FONTS.body,

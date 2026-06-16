@@ -99,7 +99,7 @@ function TaskItem({ task, viewDate, col, onToggle, onLongPress }) {
       </TouchableOpacity>
 
       <View style={styles.taskBody}>
-        <Text style={[styles.taskTitle, done && styles.taskDone]} numberOfLines={3}>
+        <Text style={[styles.taskTitle, { color: done ? COLORS.textSecondary : col.color }, done && styles.taskDone]} numberOfLines={3}>
           {task.title}{task.recurring ? ' ↻' : ''}
         </Text>
         {col.key !== 'marj' && task.points > 0 && (
@@ -496,7 +496,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   navLabel: {
-    fontFamily: FONTS.heading,
+    fontFamily: FONTS.headingBold,
     fontSize: 12,
     letterSpacing: 0.5,
     color: COLORS.adrian,
@@ -552,7 +552,7 @@ const styles = StyleSheet.create({
   // Task item
   taskItem: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingHorizontal: 5,
     paddingVertical: 5,
     gap: 5,
@@ -565,7 +565,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 1,
     flexShrink: 0,
   },
   checkMark: {
