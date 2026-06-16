@@ -14,6 +14,7 @@ import {
   CallingState,
 } from '@stream-io/video-react-native-sdk';
 
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { IdentityProvider, useIdentity } from './src/contexts/IdentityContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import IncomingCallScreen from './src/screens/IncomingCallScreen';
@@ -157,10 +158,12 @@ export default function App() {
   }
 
   return (
-    <IdentityProvider>
-      <StreamWrapper>
-        <AppNavigator />
-      </StreamWrapper>
-    </IdentityProvider>
+    <SafeAreaProvider>
+      <IdentityProvider>
+        <StreamWrapper>
+          <AppNavigator />
+        </StreamWrapper>
+      </IdentityProvider>
+    </SafeAreaProvider>
   );
 }
