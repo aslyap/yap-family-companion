@@ -709,7 +709,7 @@ export default function HomeTab() {
         <TouchableOpacity
           activeOpacity={0.95}
           onPress={() => navigation.navigate('Meals')}
-          style={{ marginTop: 10 }}
+          style={{ marginTop: 28 }}
         >
           <View style={styles.sectionBorder}>
             {/* Label row */}

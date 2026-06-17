@@ -47,6 +47,15 @@ const PERSON_COLOR = {
   family: COLORS.family,
 };
 
+const PERSON_LIGHT = {
+  maddie: COLORS.maddieLight,
+  alex:   COLORS.alexLight,
+  marj:   COLORS.marjLight,
+  mum:    '#F5EBE9',
+  dad:    '#E8EEF4',
+  family: '#EDE8E3',
+};
+
 // ─── static labels ────────────────────────────────────────────────────────────
 
 const MONTH_NAMES   = ['January','February','March','April','May','June',
@@ -447,10 +456,11 @@ function WeekView({ events, weekDates, onEventPress, onRefresh, refreshing }) {
                     if (top === null) return null;
                     const h   = Math.min(eventHeightPx(ev.startTime, ev.endTime), GRID_H - top);
                     const col = ev.color || PERSON_COLOR[ev.person] || '#ccc';
+                    const bg  = PERSON_LIGHT[ev.person] || col + '22';
                     return (
                       <TouchableOpacity
                         key={ev.id}
-                        style={[styles.weekEvent, { top, height: h, backgroundColor: col + '22', borderLeftColor: col }]}
+                        style={[styles.weekEvent, { top, height: h, backgroundColor: bg, borderLeftColor: col }]}
                         onPress={() => onEventPress?.(ev)}
                         activeOpacity={0.8}
                       >
@@ -1088,8 +1098,8 @@ const styles = StyleSheet.create({
   // legend
   legendRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
+    justifyContent: 'flex-end',
+    gap: 8,
     paddingVertical: 5,
     paddingHorizontal: H_PAD,
     borderBottomWidth: StyleSheet.hairlineWidth,

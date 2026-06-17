@@ -497,7 +497,7 @@ const styles = StyleSheet.create({
   },
   navLabel: {
     fontFamily: FONTS.headingBold,
-    fontSize: 12,
+    fontSize: 15,
     letterSpacing: 0.5,
     color: COLORS.adrian,
   },
