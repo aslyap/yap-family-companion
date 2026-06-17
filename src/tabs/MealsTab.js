@@ -5,6 +5,7 @@ import {
   RefreshControl, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, FONTS } from '../theme';
 import { fetchMealsForDates, upsertMeal, deleteMeal } from '../services/mealsService';
 
@@ -228,6 +229,8 @@ export default function MealsTab() {
     setLoading(true);
     load();
   }, [load]);
+
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   function onRefresh() { setRefreshing(true); load(); }
 

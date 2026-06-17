@@ -213,6 +213,7 @@ export default function ChatTab() {
   useSpeechRecognitionEvent('result', (event) => {
     const transcript = event.results[0]?.transcript;
     if (transcript) setInput(transcript);
+    if (event.isFinal) ExpoSpeechRecognitionModule.stop();
   });
   useSpeechRecognitionEvent('error', (event) => {
     console.warn('[voice]', event.error, event.message);
@@ -229,7 +230,7 @@ export default function ChatTab() {
       Alert.alert('Permission required', 'Microphone access is needed for voice input.');
       return;
     }
-    ExpoSpeechRecognitionModule.start({ lang: 'en-US', interimResults: true, continuous: false });
+    ExpoSpeechRecognitionModule.start({ lang: 'en-US', interimResults: true, continuous: true });
   }
 
   function scrollDown() {
