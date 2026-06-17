@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Modal, TextInput, KeyboardAvoidingView, Platform,
@@ -756,7 +757,7 @@ function EventSheet({ visible, mode, event, defaultDate, onClose, onSaved, onDel
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <KeyboardAvoidingView
         style={{ flex: 1, backgroundColor: COLORS.background }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior="padding"
       >
         <View style={[styles.sheetHeader, { paddingTop: insets.top + 16 }]}>
           <TouchableOpacity onPress={onClose} hitSlop={12}>
@@ -914,6 +915,8 @@ export default function CalendarTab() {
   }, [view, selectedDate]);
 
   useEffect(() => { load(); }, [load]);
+
+  useFocusEffect(useCallback(() => { load(true); }, [load]));
 
   function onRefresh() { setRefreshing(true); invalidateCalendarCache(); load(true); }
 
@@ -1100,7 +1103,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 8,
-    paddingVertical: 5,
+    paddingVertical: 2,
     paddingHorizontal: H_PAD,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLORS.border,

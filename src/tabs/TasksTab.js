@@ -5,6 +5,7 @@ import {
   RefreshControl, KeyboardAvoidingView, Platform, Alert, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, FONTS } from '../theme';
 import {
   fetchTasks, addTask, deleteTask, toggleComplete,
@@ -173,7 +174,7 @@ function AddTaskSheet({ visible, defaultDate, onClose, onSave }) {
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable style={styles.backdrop} onPress={onClose} />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.kvWrapper}>
+        <KeyboardAvoidingView behavior="padding" style={styles.kvWrapper}>
           <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
@@ -329,6 +330,8 @@ export default function TasksTab() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   function onRefresh() {
     setRefreshing(true);

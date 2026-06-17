@@ -321,7 +321,7 @@ function EventSheet({ visible, event, onClose, onSaved, onDeleted }) {
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <KeyboardAvoidingView
         style={{ flex: 1, backgroundColor: COLORS.background }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior="padding"
       >
         <View style={[styles.sheetHeader, { paddingTop: insets.top + 16 }]}>
           <TouchableOpacity onPress={onClose} hitSlop={12}>
@@ -518,6 +518,7 @@ export default function HomeTab() {
   useFocusEffect(useCallback(() => {
     fetchTasks().then(d => setTasks(d)).catch(() => {});
     fetchMealsForDates([viewDate]).then(d => setMeals(d)).catch(() => {});
+    fetchCalendarEvents(viewDate).then(d => setEvents(d)).catch(() => {});
   }, [viewDate]));
 
   function onRefresh() { setRefreshing(true); load(); }
