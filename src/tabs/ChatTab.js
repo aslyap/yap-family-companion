@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
 } from 'react-native';
+import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIdentity } from '../contexts/IdentityContext';
 import { COLORS, FONTS, getAccentColor } from '../theme';
@@ -205,6 +206,31 @@ export default function ChatTab() {
   const [history, setHistory] = useState([]);
   const [input, setInput]     = useState('');
   const [busy, setBusy]       = useState(false);
+  const [listening, setListening] = useState(false);
+
+  useSpeechRecognitionEvent('start', () => setListening(true));
+  useSpeechRecognitionEvent('end', () => setListening(false));
+  useSpeechRecognitionEvent('result', (event) => {
+    const transcript = event.results[0]?.transcript;
+    if (transcript) setInput(transcript);
+  });
+  useSpeechRecognitionEvent('error', (event) => {
+    console.warn('[voice]', event.error, event.message);
+    setListening(false);
+  });
+
+  async function handleMic() {
+    if (listening) {
+      ExpoSpeechRecognitionModule.stop();
+      return;
+    }
+    const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permission required', 'Microphone access is needed for voice input.');
+      return;
+    }
+    ExpoSpeechRecognitionModule.start({ lang: 'en-US', interimResults: true, continuous: false });
+  }
 
   function scrollDown() {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
@@ -350,9 +376,9 @@ export default function ChatTab() {
 
       <View style={[styles.bar, { paddingBottom: 8 }]}>
         <TouchableOpacity
-          style={styles.micBtn}
+          style={[styles.micBtn, listening && { backgroundColor: accent }]}
           activeOpacity={0.7}
-          onPress={() => Alert.alert('Voice input', 'Coming soon!')}
+          onPress={handleMic}
         >
           <Text style={{ fontSize: 18 }}>🎙</Text>
         </TouchableOpacity>

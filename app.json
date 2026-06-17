@@ -78,6 +78,14 @@
         }
       ],
       "expo-audio",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Yap Family to use the microphone for voice input.",
+          "speechRecognitionPermission": "Allow Yap Family to use speech recognition.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+        }
+      ],
       "expo-font"
     ],
     "web": {
