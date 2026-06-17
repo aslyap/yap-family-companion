@@ -2,7 +2,7 @@ import React, { useCallback, useReducer, useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Modal, TextInput, Pressable, ActivityIndicator,
-  RefreshControl, KeyboardAvoidingView, Platform, Alert, Image,
+  RefreshControl, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -79,13 +79,12 @@ function tasksReducer(state, action) {
 
 // ─── TaskItem ─────────────────────────────────────────────────────────────────
 
-function TaskItem({ task, viewDate, col, onToggle, onLongPress }) {
+function TaskItem({ task, viewDate, col, onToggle, onPress }) {
   const done = isCompleteForDate(task, viewDate);
   return (
     <TouchableOpacity
       style={styles.taskItem}
-      onLongPress={onLongPress}
-      delayLongPress={600}
+      onPress={onPress}
       activeOpacity={0.7}
     >
       <TouchableOpacity
@@ -110,6 +109,69 @@ function TaskItem({ task, viewDate, col, onToggle, onLongPress }) {
         )}
       </View>
     </TouchableOpacity>
+  );
+}
+
+// ─── TaskDetailSheet ──────────────────────────────────────────────────────────
+
+function TaskDetailSheet({ visible, task, col, viewDate, onClose, onDelete, onSkip }) {
+  const insets = useSafeAreaInsets();
+  const [deleting, setDeleting] = useState(false);
+
+  if (!task) return null;
+
+  const scheduleLabel = task.recurring
+    ? `Repeats: ${task.recurrence_rule || 'daily'}`
+    : task.one_off_date ? `Date: ${task.one_off_date}` : null;
+
+  async function handleDelete() {
+    setDeleting(true);
+    try { await onDelete(task); onClose(); } catch {}
+    setDeleting(false);
+  }
+
+  async function handleSkip() {
+    try { await onSkip(task); } catch {}
+    onClose();
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.overlay}>
+        <Pressable style={styles.backdrop} onPress={onClose} />
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <View style={styles.sheetHandle} />
+          <Text style={[styles.detailTitle, { color: col?.color || COLORS.text }]} numberOfLines={2}>
+            {task.title}
+          </Text>
+          {scheduleLabel && (
+            <Text style={styles.detailMeta}>{scheduleLabel}</Text>
+          )}
+          {task.recurring && (
+            <Text style={styles.detailWarning}>
+              Deleting will remove all occurrences of this recurring task.
+            </Text>
+          )}
+          <View style={styles.sheetActions}>
+            <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
+              <Text style={styles.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            {task.recurring && (
+              <TouchableOpacity style={styles.skipBtn} onPress={handleSkip}>
+                <Text style={styles.skipBtnText}>Skip Today</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[styles.saveBtn, { backgroundColor: '#C0392B' }, deleting && { opacity: 0.6 }]}
+              onPress={handleDelete}
+              disabled={deleting}
+            >
+              <Text style={styles.saveBtnText}>{deleting ? 'Deleting…' : 'Delete Task'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -319,6 +381,8 @@ export default function TasksTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [viewDate, setViewDate] = useState(() => todayStr());
   const [showSheet, setShowSheet] = useState(false);
+  const [detailTask, setDetailTask] = useState(null);
+  const [detailCol,  setDetailCol]  = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -371,21 +435,23 @@ export default function TasksTab() {
     setShowSheet(false);
   }
 
-  function handleLongPress(task) {
-    Alert.alert(
-      'Delete Task',
-      `Delete "${task.title}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete', style: 'destructive',
-          onPress: async () => {
-            dispatch({ type: 'delete', id: task.id });
-            try { await deleteTask(task.id); } catch {}
-          },
-        },
-      ]
-    );
+  async function handleDelete(task) {
+    dispatch({ type: 'delete', id: task.id });
+    try { await deleteTask(task.id); } catch {}
+  }
+
+  async function handleSkipToday(task) {
+    const optimistic = {
+      ...task,
+      completion_status: { ...task.completion_status, [viewDate]: true },
+    };
+    dispatch({ type: 'update', task: optimistic });
+    try {
+      const saved = await toggleComplete(task, viewDate);
+      dispatch({ type: 'update', task: saved });
+    } catch {
+      dispatch({ type: 'update', task });
+    }
   }
 
   return (
@@ -437,7 +503,7 @@ export default function TasksTab() {
                       viewDate={viewDate}
                       col={col}
                       onToggle={() => handleToggle(task)}
-                      onLongPress={() => handleLongPress(task)}
+                      onPress={() => { setDetailTask(task); setDetailCol(col); }}
                     />
                   ))
                 )}
@@ -461,6 +527,16 @@ export default function TasksTab() {
         defaultDate={viewDate}
         onClose={() => setShowSheet(false)}
         onSave={handleAdd}
+      />
+
+      <TaskDetailSheet
+        visible={!!detailTask}
+        task={detailTask}
+        col={detailCol}
+        viewDate={viewDate}
+        onClose={() => setDetailTask(null)}
+        onDelete={handleDelete}
+        onSkip={handleSkipToday}
       />
     </View>
   );
@@ -808,5 +884,43 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#fff',
     letterSpacing: 0.3,
+  },
+
+  // Task detail sheet
+  detailTitle: {
+    fontFamily: FONTS.headingBold,
+    fontSize: 18,
+    color: COLORS.text,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  detailMeta: {
+    fontFamily: FONTS.body,
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    marginBottom: 4,
+  },
+  detailWarning: {
+    fontFamily: FONTS.body,
+    fontSize: 13,
+    color: '#C0392B',
+    marginTop: 10,
+    marginBottom: 4,
+    lineHeight: 18,
+  },
+  skipBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+  },
+  skipBtnText: {
+    fontFamily: FONTS.bodyMedium,
+    fontSize: 14,
+    color: COLORS.textSecondary,
   },
 });
