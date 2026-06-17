@@ -49,6 +49,7 @@ export async function deleteCalendarEvent({ eventId, person }) {
     { method: 'DELETE' }
   );
   if (!res.ok) {
+    if (res.status === 410) throw new Error('Event already deleted');
     const text = await res.text();
     throw new Error(`Delete failed: ${res.status} ${text}`);
   }
