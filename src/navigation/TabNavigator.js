@@ -58,9 +58,9 @@ export default function TabNavigator() {
           },
           headerTitleStyle: {
             fontFamily: 'Figtree_700Bold',
-            fontSize: 13,
+            fontSize: 18,
             color: COLORS.text,
-            letterSpacing: 0.5,
+            letterSpacing: 0.3,
           },
           headerTitleAlign: 'center',
           headerRight: () => (

@@ -278,7 +278,7 @@ export default function MealsTab() {
       </View>
 
       {/* Column header row 1: meal group labels */}
-      <View style={[styles.headerRow, { borderBottomWidth: 0 }]}>
+      <View style={[styles.headerRow, { borderBottomWidth: 0, marginTop: 10 }]}>
         <View style={{ width: DAY_COL }} />
         <View style={[styles.groupHeader, { flex: 2, borderLeftWidth: 1, borderLeftColor: COLORS.border }]}>
           <Text style={styles.groupHeaderText}>Breakfast</Text>
@@ -373,17 +373,18 @@ const styles = StyleSheet.create({
   weekNav: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 34,
+    paddingTop: 8,
+    paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  navBtn: { width: 44, height: 34, alignItems: 'center', justifyContent: 'center' },
+  navBtn: { width: 44, alignItems: 'center', justifyContent: 'center', paddingTop: 8, paddingBottom: 10 },
   navArrow: { fontSize: 22, color: COLORS.adrian, lineHeight: 26 },
   navCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   navLabel: {
-    fontFamily: FONTS.heading,
-    fontSize: 12,
-    letterSpacing: 0.5,
+    fontFamily: FONTS.headingBold,
+    fontSize: 15,
+    letterSpacing: 0.3,
     color: COLORS.adrian,
   },
 
@@ -397,7 +398,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   groupHeaderText: {
-    fontFamily: FONTS.heading,
+    fontFamily: FONTS.headingBold,
     fontSize: 8,
     letterSpacing: 0.5,
     color: COLORS.textSecondary,
@@ -455,7 +456,7 @@ const styles = StyleSheet.create({
     borderRightColor: COLORS.border,
   },
   dayLabel: {
-    fontFamily: FONTS.body,
+    fontFamily: FONTS.bodyMedium,
     fontSize: 10,
     letterSpacing: 0,
     color: COLORS.textSecondary,
