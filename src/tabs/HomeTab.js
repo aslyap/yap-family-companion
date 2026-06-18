@@ -713,7 +713,7 @@ export default function HomeTab() {
         <TouchableOpacity
           activeOpacity={0.95}
           onPress={() => navigation.navigate('Meals')}
-          style={{ marginTop: 28 }}
+          style={{ marginTop: 6 }}
         >
           <View style={styles.sectionBorder}>
             {/* Label row */}
@@ -904,7 +904,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', paddingVertical: 3,
   },
   mealGroupLabel: {
-    fontFamily: FONTS.heading, fontSize: 7, letterSpacing: 0.5,
+    fontFamily: FONTS.headingBold, fontSize: 7, letterSpacing: 0.5,
     color: COLORS.textSecondary, textAlign: 'center',
   },
   mealSubRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: COLORS.border },
@@ -912,7 +912,7 @@ const styles = StyleSheet.create({
     flex: 1, paddingVertical: 2, alignItems: 'center',
   },
   mealPersonSub: {
-    fontFamily: FONTS.body, fontSize: 7, letterSpacing: 0.3, textTransform: 'uppercase',
+    fontFamily: FONTS.headingBold, fontSize: 7, letterSpacing: 0.3, textTransform: 'uppercase',
     color: COLORS.textSecondary,
   },
   mealDataRow: {
@@ -920,7 +920,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: COLORS.border,
   },
   mealDateLabel: {
-    width: TIMELINE_W, fontFamily: FONTS.bodyMedium, fontSize: 8,
+    width: TIMELINE_W, fontFamily: FONTS.headingBold, fontSize: 8,
     color: COLORS.text, paddingLeft: 5,
   },
   mealCell: {
