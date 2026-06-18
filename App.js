@@ -128,16 +128,17 @@ function StreamWrapper({ children }) {
     };
   }, [identity, retryCount]);
 
-  if (!identity || !readyClient) {
-    // No identity yet or still connecting — let AppNavigator handle identity select / loading.
-    return children;
-  }
-
+  // Always render children at a stable position in the tree so NavigationContainer
+  // is never remounted when readyClient arrives (would reset nav to Home).
   return (
-    <StreamVideo client={readyClient}>
+    <>
       {children}
-      <CallOverlay />
-    </StreamVideo>
+      {identity && readyClient && (
+        <StreamVideo client={readyClient}>
+          <CallOverlay />
+        </StreamVideo>
+      )}
+    </>
   );
 }
 

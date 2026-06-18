@@ -633,9 +633,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 5,
-    paddingVertical: 5,
+    paddingVertical: 2,
     gap: 5,
-    minHeight: 36,
+    minHeight: 28,
   },
   checkbox: {
     width: 20,

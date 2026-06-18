@@ -212,7 +212,7 @@ export default function ChatTab() {
   useSpeechRecognitionEvent('end', () => setListening(false));
   useSpeechRecognitionEvent('result', (event) => {
     const transcript = event.results[0]?.transcript;
-    if (transcript) setInput(transcript);
+    if (transcript) setInput(transcript.replace(/\bMarge\b/gi, 'Marj'));
     if (event.isFinal) ExpoSpeechRecognitionModule.stop();
   });
   useSpeechRecognitionEvent('error', (event) => {

@@ -664,47 +664,50 @@ export default function HomeTab() {
           </View>
         </TouchableOpacity>
 
-        {/* Tasks section */}
+        {/* Tasks section — header tappable, body scrollable per column */}
         <TouchableOpacity
           activeOpacity={0.95}
           onPress={() => navigation.navigate('Tasks')}
         >
-          <View>
-            <View style={{ flexDirection: 'row' }}>
-              <View style={{ width: TIMELINE_W }} />
-              {PERSONS.map(p => (
-                <View key={p.key} style={styles.taskColHead}>
-                  <Text style={[styles.sectionLabel, { color: p.color }]}>TASKS ›</Text>
-                </View>
-              ))}
-            </View>
-            <View style={{ flexDirection: 'row', minHeight: 44 }}>
-              <View style={{ width: TIMELINE_W }} />
-              {PERSONS.map(p => {
-                const colTasks = tasksFor(p.key);
-                return (
-                  <View key={p.key} style={styles.taskColBody}>
-                    {colTasks.length === 0 ? (
-                      <Text style={styles.emptyHint}>—</Text>
-                    ) : colTasks.map(t => (
-                      <View key={t.id} style={styles.taskRow}>
-                        <View style={[styles.taskCheckbox, {
-                          borderColor: p.color,
-                          backgroundColor: t.done ? p.color : 'transparent',
-                        }]}>
-                          {t.done && <Text style={styles.taskCheckMark}>✓</Text>}
-                        </View>
-                        <Text style={[styles.taskTitle, { color: t.done ? COLORS.textSecondary : p.color }, t.done && styles.taskDone]} numberOfLines={2}>
-                          {t.title}{t.recurring ? ' ↻' : ''}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                );
-              })}
-            </View>
+          <View style={{ flexDirection: 'row' }}>
+            <View style={{ width: TIMELINE_W }} />
+            {PERSONS.map(p => (
+              <View key={p.key} style={styles.taskColHead}>
+                <Text style={[styles.sectionLabel, { color: p.color }]}>TASKS ›</Text>
+              </View>
+            ))}
           </View>
         </TouchableOpacity>
+        <View style={{ flexDirection: 'row', maxHeight: 110 }}>
+          <View style={{ width: TIMELINE_W }} />
+          {PERSONS.map(p => {
+            const colTasks = tasksFor(p.key);
+            return (
+              <ScrollView
+                key={p.key}
+                style={styles.taskColBody}
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={colTasks.length > 4}
+              >
+                {colTasks.length === 0 ? (
+                  <Text style={styles.emptyHint}>—</Text>
+                ) : colTasks.map(t => (
+                  <View key={t.id} style={styles.taskRow}>
+                    <View style={[styles.taskCheckbox, {
+                      borderColor: p.color,
+                      backgroundColor: t.done ? p.color : 'transparent',
+                    }]}>
+                      {t.done && <Text style={styles.taskCheckMark}>✓</Text>}
+                    </View>
+                    <Text style={[styles.taskTitle, { color: t.done ? COLORS.textSecondary : p.color }, t.done && styles.taskDone]} numberOfLines={2}>
+                      {t.title}{t.recurring ? ' ↻' : ''}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
+            );
+          })}
+        </View>
 
         {/* Meal Plan section */}
         <TouchableOpacity
@@ -755,16 +758,16 @@ export default function HomeTab() {
             {/* Data row */}
             <View style={[styles.mealDataRow, { borderBottomWidth: 1, borderBottomColor: COLORS.border }]}>
               <Text style={styles.mealDateLabel}>{dayLabel}</Text>
-              <Text style={[styles.mealCell, { borderLeftWidth: 1, borderLeftColor: COLORS.border }]} numberOfLines={1}>
+              <Text style={[styles.mealCell, { borderLeftWidth: 1, borderLeftColor: COLORS.border, color: COLORS.maddie }]} numberOfLines={1}>
                 {mealFor(viewDate, 'maddie', 'breakfast')}
               </Text>
-              <Text style={styles.mealCell} numberOfLines={1}>
+              <Text style={[styles.mealCell, { color: COLORS.alex }]} numberOfLines={1}>
                 {mealFor(viewDate, 'alex', 'breakfast')}
               </Text>
-              <Text style={[styles.mealCell, { borderLeftWidth: 1, borderLeftColor: COLORS.border }]} numberOfLines={1}>
+              <Text style={[styles.mealCell, { borderLeftWidth: 1, borderLeftColor: COLORS.border, color: COLORS.maddie }]} numberOfLines={1}>
                 {mealFor(viewDate, 'maddie', 'lunch')}
               </Text>
-              <Text style={styles.mealCell} numberOfLines={1}>
+              <Text style={[styles.mealCell, { color: COLORS.alex }]} numberOfLines={1}>
                 {mealFor(viewDate, 'alex', 'lunch')}
               </Text>
               <Text style={[styles.mealCell, { borderLeftWidth: 1, borderLeftColor: COLORS.border }]} numberOfLines={1}>
