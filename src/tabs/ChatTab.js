@@ -288,7 +288,10 @@ export default function ChatTab() {
       const resp = await callClaude(newHistory);
       ingestResponse(resp, newHistory);
     } catch (e) {
-      append({ id: uid(), type: 'bot', text: 'Sorry, something went wrong. Please try again.' });
+      const msg = e.message?.includes('rate limit') || e.message?.includes('429') || e.message?.includes('quota')
+        ? 'Too many messages — please wait a moment and try again.'
+        : `Sorry, something went wrong: ${e.message || 'unknown error'}`;
+      append({ id: uid(), type: 'bot', text: msg });
       console.warn('[chat]', e.message);
     } finally {
       setBusy(false);
