@@ -24,6 +24,20 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
 
+      - name: Patch Podfile for Firebase modular headers
+        run: |
+          python3 - <<'EOF'
+          with open('ios/Podfile', 'r') as f:
+              content = f.read()
+          if 'use_modular_headers!' not in content:
+              content = content.replace('use_expo_modules!', 'use_expo_modules!\n  use_modular_headers!', 1)
+              with open('ios/Podfile', 'w') as f:
+                  f.write(content)
+              print("Patched Podfile with use_modular_headers!")
+          else:
+              print("Already patched")
+          EOF
+
       - name: Cache CocoaPods
         uses: actions/cache@v4
         with:
