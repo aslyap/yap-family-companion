@@ -1,7 +1,7 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, ActivityIndicator,
-  StyleSheet, RefreshControl, Image, Modal, TextInput,
+  StyleSheet, Image, Modal, TextInput,
   KeyboardAvoidingView, Platform, Alert, FlatList, Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -592,12 +592,8 @@ export default function HomeTab() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={{ paddingBottom: 4 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={accent} />}
-      >
-        {/* Calendar section */}
+      <View style={{ flex: 1 }}>
+        {/* Calendar col headers — tappable, fixed height */}
         <TouchableOpacity
           activeOpacity={0.95}
           onPress={() => navigation.navigate('Calendar')}
@@ -611,8 +607,16 @@ export default function HomeTab() {
               </View>
             ))}
           </View>
+        </TouchableOpacity>
 
-          <View style={{ position: 'relative' }}>
+        {/* Calendar grid — flex:1 takes all remaining space; clips bottom if screen is small */}
+        <View style={{ flex: 1, overflow: 'hidden' }}>
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={0.95}
+            onPress={() => navigation.navigate('Calendar')}
+          >
+          <View style={{ position: 'relative', flex: 1 }}>
             <View style={{ flexDirection: 'row', height: GRID_HEIGHT }}>
               {/* Hour labels */}
               <View style={{ width: TIMELINE_W, height: GRID_HEIGHT, position: 'relative', overflow: 'visible' }}>
@@ -662,7 +666,8 @@ export default function HomeTab() {
               </View>
             )}
           </View>
-        </TouchableOpacity>
+          </TouchableOpacity>
+        </View>
 
         {/* Tasks section — header tappable, body scrollable per column */}
         <TouchableOpacity
@@ -687,7 +692,7 @@ export default function HomeTab() {
                 key={p.key}
                 style={styles.taskColBody}
                 nestedScrollEnabled
-                showsVerticalScrollIndicator={colTasks.length > 4}
+                showsVerticalScrollIndicator={colTasks.length > 0}
               >
                 {colTasks.length === 0 ? (
                   <Text style={styles.emptyHint}>—</Text>
@@ -776,7 +781,7 @@ export default function HomeTab() {
             </View>
           </View>
         </TouchableOpacity>
-      </ScrollView>
+      </View>
 
       {/* Event edit sheet */}
       {editingEvent && (

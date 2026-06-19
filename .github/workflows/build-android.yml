@@ -67,12 +67,8 @@ jobs:
               print("Already patched")
           EOF
 
-      - name: Generate release keystore
-        run: |
-          keytool -genkey -v -keystore release.keystore \
-            -alias release -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android -keypass android \
-            -dname "CN=YapFamily,O=YapFamily,L=SG,S=SG,C=SG"
+      - name: Decode release keystore
+        run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > release.keystore
 
       - name: Build release APK with Gradle
         run: |
@@ -80,9 +76,9 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon \
             -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/release.keystore \
-            -Pandroid.injected.signing.store.password=android \
-            -Pandroid.injected.signing.key.alias=release \
-            -Pandroid.injected.signing.key.password=android
+            -Pandroid.injected.signing.store.password=${{ secrets.RELEASE_STORE_PASSWORD }} \
+            -Pandroid.injected.signing.key.alias=${{ secrets.RELEASE_KEY_ALIAS }} \
+            -Pandroid.injected.signing.key.password=${{ secrets.RELEASE_KEY_PASSWORD }}
         env:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}

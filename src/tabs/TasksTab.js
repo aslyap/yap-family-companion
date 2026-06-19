@@ -492,20 +492,22 @@ export default function TasksTab() {
                 </View>
 
                 {loading ? (
-                  <ActivityIndicator size="small" color={col.color} style={{ marginTop: 14 }} />
+                  <ActivityIndicator size="small" color={col.color} style={{ marginTop: 20 }} />
                 ) : colTasks.length === 0 ? (
                   <Text style={styles.emptyText}>No tasks</Text>
                 ) : (
-                  colTasks.map(task => (
-                    <TaskItem
-                      key={task.id}
-                      task={task}
-                      viewDate={viewDate}
-                      col={col}
-                      onToggle={() => handleToggle(task)}
-                      onPress={() => { setDetailTask(task); setDetailCol(col); }}
-                    />
-                  ))
+                  <View style={{ paddingTop: 8 }}>
+                    {colTasks.map(task => (
+                      <TaskItem
+                        key={task.id}
+                        task={task}
+                        viewDate={viewDate}
+                        col={col}
+                        onToggle={() => handleToggle(task)}
+                        onPress={() => { setDetailTask(task); setDetailCol(col); }}
+                      />
+                    ))}
+                  </View>
                 )}
               </View>
             );
@@ -633,7 +635,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 5,
-    paddingVertical: 1,
+    paddingVertical: 4,
     gap: 5,
   },
   checkbox: {
