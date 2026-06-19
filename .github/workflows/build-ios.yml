@@ -50,7 +50,8 @@ jobs:
 
       - name: Build unsigned archive
         run: |
-          SCHEME=$(ls ios/*.xcworkspace | head -1 | xargs basename | sed 's/.xcworkspace//')
+          SCHEME=$(ls ios/*.xcworkspace | grep -v contentsdata | head -1 | xargs basename | sed 's/.xcworkspace//')
+          echo "All xcworkspaces found: $(ls ios/*.xcworkspace)"
           echo "Building scheme: $SCHEME"
           xcodebuild \
             -workspace "ios/$SCHEME.xcworkspace" \
@@ -66,7 +67,7 @@ jobs:
 
       - name: Package IPA
         run: |
-          SCHEME=$(ls ios/*.xcworkspace | head -1 | xargs basename | sed 's/.xcworkspace//')
+          SCHEME=$(ls ios/*.xcworkspace | grep -v contentsdata | head -1 | xargs basename | sed 's/.xcworkspace//')
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -r "$RUNNER_TEMP/$SCHEME.xcarchive/Products/Applications/$SCHEME.app" "$RUNNER_TEMP/ipa/Payload/"
           cd "$RUNNER_TEMP/ipa"
