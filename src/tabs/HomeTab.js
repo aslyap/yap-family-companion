@@ -592,7 +592,7 @@ export default function HomeTab() {
         </TouchableOpacity>
       </View>
 
-      <View style={{ flex: 1 }}>
+      <ScrollView style={{ flex: 1 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
         {/* Calendar col headers — tappable, fixed height */}
         <TouchableOpacity
           activeOpacity={0.95}
@@ -609,15 +609,14 @@ export default function HomeTab() {
           </View>
         </TouchableOpacity>
 
-        {/* Calendar grid — flex:1 takes all remaining space; clips bottom if screen is small */}
-        <View style={{ flex: 1, overflow: 'hidden' }}>
+        {/* Calendar grid — fixed height so Tasks always anchors to 8pm line */}
+        <View style={{ height: GRID_HEIGHT + 8, overflow: 'hidden' }}>
           <TouchableOpacity
-            style={{ flex: 1 }}
             activeOpacity={0.95}
             onPress={() => navigation.navigate('Calendar')}
           >
-          <View style={{ position: 'relative', flex: 1 }}>
-            <View style={{ flexDirection: 'row', height: GRID_HEIGHT }}>
+          <View style={{ position: 'relative', height: GRID_HEIGHT + 8 }}>
+            <View style={{ flexDirection: 'row', height: GRID_HEIGHT, marginTop: 8 }}>
               {/* Hour labels */}
               <View style={{ width: TIMELINE_W, height: GRID_HEIGHT, position: 'relative', overflow: 'visible' }}>
                 {GRID_HOURS.map((h, i) => {
@@ -661,7 +660,7 @@ export default function HomeTab() {
             </View>
 
             {tiTop >= 0 && (
-              <View pointerEvents="none" style={[styles.timeIndicator, { top: tiTop }]}>
+              <View pointerEvents="none" style={[styles.timeIndicator, { top: tiTop + 8 }]}>
                 <View style={styles.timeIndicatorDot} />
               </View>
             )}
@@ -718,7 +717,6 @@ export default function HomeTab() {
         <TouchableOpacity
           activeOpacity={0.95}
           onPress={() => navigation.navigate('Meals')}
-          style={{ marginTop: 6 }}
         >
           <View style={styles.sectionBorder}>
             {/* Label row */}
@@ -781,7 +779,7 @@ export default function HomeTab() {
             </View>
           </View>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
 
       {/* Event edit sheet */}
       {editingEvent && (
