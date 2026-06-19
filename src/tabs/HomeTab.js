@@ -841,6 +841,7 @@ const styles = StyleSheet.create({
   gridCol: {
     flex: 1, height: GRID_HEIGHT, position: 'relative',
     borderLeftWidth: 1, borderLeftColor: COLORS.border,
+    overflow: 'hidden',
   },
   hourLine: {
     position: 'absolute', left: 0, right: 0,
