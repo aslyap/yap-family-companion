@@ -1,0 +1,67 @@
+name: Build iOS IPA (SideStore)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Expo prebuild iOS
+        run: npx expo prebuild --platform ios --clean --no-install
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: pods-
+
+      - name: Install CocoaPods
+        run: cd ios && pod install
+
+      - name: Build unsigned archive
+        run: |
+          SCHEME=$(ls ios/*.xcworkspace | head -1 | xargs basename | sed 's/.xcworkspace//')
+          echo "Building scheme: $SCHEME"
+          xcodebuild \
+            -workspace "ios/$SCHEME.xcworkspace" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath "$RUNNER_TEMP/$SCHEME.xcarchive" \
+            archive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            -quiet
+
+      - name: Package IPA
+        run: |
+          SCHEME=$(ls ios/*.xcworkspace | head -1 | xargs basename | sed 's/.xcworkspace//')
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -r "$RUNNER_TEMP/$SCHEME.xcarchive/Products/Applications/$SCHEME.app" "$RUNNER_TEMP/ipa/Payload/"
+          cd "$RUNNER_TEMP/ipa"
+          zip -r yap-family-companion.ipa Payload/
+          echo "IPA size: $(du -sh yap-family-companion.ipa | cut -f1)"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: yap-family-companion-ipa
+          path: ${{ runner.temp }}/ipa/yap-family-companion.ipa
+          retention-days: 30
