@@ -8,11 +8,12 @@
   2. **Kiosk accept bug** (kiosk `IncomingCallOverlay.jsx`): when the kiosk user tapped Accept, `call.join()` transitioned the call from RINGING → JOINED, causing `useCalls()` to stop finding the ringing call, which unmounted the entire overlay before `IncomingActiveCall` could render. Fixed by lifting `activeCall` state to `IncomingCallOverlay` (parent), with `acceptingRef` guard to prevent premature dismiss during the join transition.
   3. **Stuck spinner bug** (`CallHomeButton`): after call ends, the 📹 button stayed frozen as a spinner. Fixed by subscribing to `call.state.callingState$` after `join()` and resetting to idle when state → `'left'` or `'idle'`.
 - Kiosk deployed to Vercel (auto-deploy via push to main)
-- APK build #44 triggered via push to main
+- Code pushed — **APK build must be triggered manually** (GitHub Actions → Build Android APK → Run workflow)
 
 ### Still needed ⚠️
-- **Verify hour label fix on Adrian's phone** — APK #44 has the f5843a5 fix (`top = i * HOUR_H - 5`). Check Home + Calendar tabs.
-- **Test end-to-end calling with APK #44**:
+- **Trigger APK build** — go to GitHub Actions → Build Android APK → Run workflow
+- **Verify hour label fix on Adrian's phone** — new APK has the f5843a5 fix (`top = i * HOUR_H - 5`). Check Home + Calendar tabs.
+- **Test end-to-end calling with new APK**:
   1. Open kiosk (yap-family-home.vercel.app) DevTools → should see `[Stream] creating kiosk client` + `[Stream] token received for family-hub`
   2. Adrian taps 📹 → should see spinner (no self-ring) → kiosk should show "Dad is calling…" overlay
   3. Kiosk taps Accept → both sides should show active call video
@@ -22,15 +23,15 @@
 
 ## Next session priorities
 
-### (i) Test APK #44 end-to-end call flow 🔴
-The three bugs above were identified by code analysis. Install APK #44 and verify:
+### (i) Test end-to-end call flow 🔴
+Trigger APK build manually (GitHub Actions → Build Android APK → Run workflow), install on Adrian's phone, and verify:
 - No self-ring on Adrian's phone when he taps 📹
 - Kiosk shows incoming ring overlay ("Dad is calling…")
 - Accepting on kiosk shows active call video
 - Hanging up resets both sides
 
 ### (ii) Hour label verification 🟡
-Same APK #44. Check Home tab (6am–8pm) and Calendar tab (Day/Week views).
+Same APK. Check Home tab (6am–8pm) and Calendar tab (Day/Week views).
 
 ---
 
