@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, ActivityIndicator, AppState, Platform, PermissionsAndroid, StyleSheet } from 'react-native';
+import { setAudioModeAsync, useAudioPlayer } from 'expo-audio';
+import * as Notifications from 'expo-notifications';
 import { useFonts } from 'expo-font';
 import {
   Figtree_400Regular,
@@ -22,6 +24,28 @@ import ActiveCallScreen from './src/screens/ActiveCallScreen';
 import { getOrCreateClient, clearClient } from './src/streamClient';
 import { COLORS } from './src/theme';
 
+// Plays a 0-volume silent audio loop so iOS keeps the app process alive in
+// background, letting the Stream WebSocket stay connected for incoming rings.
+// Only mounted on iOS when the user has selected an identity.
+function IOSBackgroundKeepAlive() {
+  const player = useAudioPlayer(require('./assets/silence.wav'));
+
+  useEffect(() => {
+    setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: true,
+    }).catch(() => {});
+    player.loop = true;
+    player.volume = 0;
+    player.play().catch(() => {});
+    return () => { try { player.pause(); } catch (_) {} };
+  }, []);
+
+  return null;
+}
+
+const CALL_NOTIF_ID = 'yap-incoming-call';
+
 // Lives inside <StreamVideo> — detects ring/active calls and overlays them above the
 // tab navigator using absoluteFillObject. Returns null when no call is active.
 function CallOverlay() {
@@ -34,11 +58,38 @@ function CallOverlay() {
       c.state.callingState === CallingState.JOINING,
   );
   const userDeclinedRef = useRef(false);
+  const appStateRef = useRef(AppState.currentState);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', s => { appStateRef.current = s; });
+    return () => sub.remove();
+  }, []);
 
   // When the current user placed the outgoing call, their own call briefly enters
   // RINGING state between getOrCreate() and join(). Guard against showing the
   // IncomingCallScreen (with vibration + ringtone) to the caller themselves.
   const isIncomingRing = ringing && ringing.state.createdBy?.id !== identity;
+
+  // When backgrounded and a ring arrives, post a local notification so the user
+  // can tap through to the app. The ringtone plays via expo-audio even in background
+  // (because IOSBackgroundKeepAlive set shouldPlayInBackground: true on the session).
+  useEffect(() => {
+    if (!isIncomingRing) {
+      Notifications.dismissNotificationAsync(CALL_NOTIF_ID).catch(() => {});
+      return;
+    }
+    if (Platform.OS === 'ios' && appStateRef.current !== 'active') {
+      Notifications.scheduleNotificationAsync({
+        identifier: CALL_NOTIF_ID,
+        content: {
+          title: '📹 Incoming video call',
+          body: 'Yap Family is calling — tap to open',
+          sound: true,
+        },
+        trigger: null,
+      }).catch(() => {});
+    }
+  }, [isIncomingRing]);
 
   if (active) {
     return (
@@ -72,6 +123,13 @@ function StreamWrapper({ children }) {
   const [readyClient, setReadyClient] = useState(null);
   const clientRef = useRef(null);
   const [retryCount, setRetryCount] = useState(0);
+
+  // Ask for notification permission on iOS so background ring alerts can appear.
+  useEffect(() => {
+    if (Platform.OS === 'ios' && identity) {
+      Notifications.requestPermissionsAsync().catch(() => {});
+    }
+  }, [identity]);
 
   useEffect(() => {
     if (!identity) {
@@ -139,6 +197,7 @@ function StreamWrapper({ children }) {
   return (
     <>
       {children}
+      {Platform.OS === 'ios' && identity && <IOSBackgroundKeepAlive />}
       {identity && readyClient && (
         <StreamVideo client={readyClient}>
           <CallOverlay />

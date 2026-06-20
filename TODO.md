@@ -52,14 +52,19 @@ Kath never needs to manually open SideStore again. Source: https://github.com/or
 
 ## Next session priorities
 
-### (i) 2-way calling — both iOS and Android 🔴
+### (i) 2-way calling — both iOS and Android 🟡
 Current state:
 - **App → Kiosk** (Adrian taps 📹): being debugged in a separate session. Stream ring + kiosk overlay should work. Verify with new APK.
-- **Kiosk → App (foreground)**: works when app is open — `ring: true` now set for both `kath` and `adrian`
-- **Kiosk → App (background/closed)**: NOT YET DONE — needs APNs VoIP push for iOS, FCM for Android
-  - For iOS: requires APNs VoIP certificate uploaded to Stream dashboard + PushKit in the app
-  - For Android: FCM push may already work via Stream SDK (test with new APK)
-  - Adrian's Yap Dad Companion APK has the "must open app first" issue — same root cause
+- **Kiosk → App (foreground)**: works — `ring: true` set for both `kath` and `adrian`
+- **Kiosk → App (background)**: ✅ IMPLEMENTED — silent audio keep-alive trick
+  - `assets/silence.wav` (8KB, 0.5s loop at vol 0) keeps iOS process alive in background
+  - `UIBackgroundModes: ["audio"]` added to app.json
+  - `IOSBackgroundKeepAlive` component sets `shouldPlayInBackground: true` on the audio session
+  - Stream WebSocket stays connected → ring events detected even when backgrounded
+  - IncomingCallScreen mounts in background → ringtone plays even when screen is locked
+  - Local notification posted when ring arrives in background so Kath can tap to foreground
+  - **Limitation**: if app is force-quit (swiped away), it won't wake. User must have opened app at least once since reboot. APNs VoIP (paid developer account) is the only fix for force-quit.
+- **Android (Adrian)**: FCM via `setPushConfig` in index.js — test with new APK to verify
 
 ### (ii) SideStore auto-refresh ✅ (pending setup on Kath's phone)
 Instructions above. Once done, verify by checking the automation ran the next morning.
