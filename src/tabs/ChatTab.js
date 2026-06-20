@@ -290,17 +290,18 @@ export default function ChatTab() {
       setInput('');
       ingestResponse(resp, newHistory);
     } catch (e) {
-      const isRateLimit = e.message?.includes('rate limit') || e.message?.includes('429') || e.message?.includes('quota');
+      const raw = e.message || 'unknown error';
+      const isRateLimit = raw.includes('rate limit') || raw.includes('429') || raw.includes('quota');
       const msg = isRateLimit
-        ? 'Too many messages — please wait 60 seconds and try again.'
-        : `Sorry, something went wrong: ${e.message || 'unknown error'}`;
+        ? `Too many messages — please wait 60 seconds and try again.\n[debug: ${raw.slice(0, 120)}]`
+        : `Sorry, something went wrong: ${raw}`;
       if (isRateLimit) {
         setOnCooldown(true);
         clearTimeout(cooldownTimer.current);
         cooldownTimer.current = setTimeout(() => setOnCooldown(false), 60_000);
       }
       append({ id: uid(), type: 'bot', text: msg });
-      console.warn('[chat]', e.message);
+      console.warn('[chat]', raw);
     } finally {
       setBusy(false);
     }
