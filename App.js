@@ -26,6 +26,7 @@ import { COLORS } from './src/theme';
 // tab navigator using absoluteFillObject. Returns null when no call is active.
 function CallOverlay() {
   const calls = useCalls();
+  const { identity } = useIdentity();
   const ringing = calls.find(c => c.state.callingState === CallingState.RINGING);
   const active = calls.find(
     c =>
@@ -33,6 +34,11 @@ function CallOverlay() {
       c.state.callingState === CallingState.JOINING,
   );
   const userDeclinedRef = useRef(false);
+
+  // When the current user placed the outgoing call, their own call briefly enters
+  // RINGING state between getOrCreate() and join(). Guard against showing the
+  // IncomingCallScreen (with vibration + ringtone) to the caller themselves.
+  const isIncomingRing = ringing && ringing.state.createdBy?.id !== identity;
 
   if (active) {
     return (
@@ -43,7 +49,7 @@ function CallOverlay() {
       </View>
     );
   }
-  if (ringing) {
+  if (isIncomingRing) {
     return (
       <View style={StyleSheet.absoluteFillObject}>
         <StreamCall call={ringing}>

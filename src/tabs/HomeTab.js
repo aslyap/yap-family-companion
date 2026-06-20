@@ -427,6 +427,10 @@ function EventBlock({ event, color, light, onPress }) {
 function CallHomeButton({ identity }) {
   const [state, setState] = useState('idle');
   const callRef = useRef(null);
+  const subRef  = useRef(null);
+
+  // Unsubscribe on unmount
+  useEffect(() => () => subRef.current?.unsubscribe?.(), []);
 
   async function startCall() {
     setState('calling');
@@ -445,6 +449,15 @@ function CallHomeButton({ identity }) {
       await call.join();
       console.log('[Call] joined, callingState:', call.state.callingState);
       callRef.current = call;
+      // Reset the button once the call ends (kiosk hangs up, timeout, etc.)
+      subRef.current = call.state.callingState$.subscribe(cs => {
+        if (cs === 'left' || cs === 'idle') {
+          callRef.current = null;
+          subRef.current?.unsubscribe?.();
+          subRef.current = null;
+          setState('idle');
+        }
+      });
     } catch (e) {
       console.error('[Call] startCall failed:', e);
       setState('error');
@@ -454,6 +467,8 @@ function CallHomeButton({ identity }) {
   }
 
   async function cancelCall() {
+    subRef.current?.unsubscribe?.();
+    subRef.current = null;
     try {
       if (callRef.current) { await callRef.current.leave({ reject: true }); callRef.current = null; }
     } catch {}
