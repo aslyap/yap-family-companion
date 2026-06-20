@@ -347,7 +347,7 @@ export default function ChatTab() {
     <KeyboardAvoidingView
       style={styles.screen}
       behavior="padding"
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 52 : 0}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 52 : 0}
     >
       <ScrollView
         ref={scrollRef}

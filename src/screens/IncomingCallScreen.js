@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Vibration } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCall, useCallStateHooks, CallingState } from '@stream-io/video-react-native-sdk';
 import { useAudioPlayer } from 'expo-audio';
 
@@ -8,6 +9,7 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
   const call = useCall();
   const { useCallCallingState } = useCallStateHooks();
   const callingState = useCallCallingState();
+  const insets = useSafeAreaInsets();
 
   const player = useAudioPlayer(require('../../assets/ringtone.wav'));
 
@@ -42,7 +44,7 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: Math.max(80, insets.top + 24), paddingBottom: Math.max(80, insets.bottom + 24) }]}>
       <View style={styles.callerInfo}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>🏠</Text>
