@@ -8,11 +8,14 @@ export async function tokenProvider(userId) {
   let lastError;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
+      console.log(`[Stream] tokenProvider attempt ${attempt + 1} for ${userId}`);
       const r = await fetch(`${BACKEND_URL}/api/stream/token?user_id=${userId}`);
       if (!r.ok) throw new Error(`Token fetch failed: ${r.status}`);
       const d = await r.json();
+      console.log(`[Stream] token received for ${userId}`);
       return d.token;
     } catch (e) {
+      console.warn(`[Stream] tokenProvider attempt ${attempt + 1} failed:`, e);
       lastError = e;
       if (attempt < 2) await new Promise(res => setTimeout(res, 2000 * (attempt + 1)));
     }

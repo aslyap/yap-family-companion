@@ -431,17 +431,24 @@ function CallHomeButton({ identity }) {
   async function startCall() {
     setState('calling');
     try {
+      console.log('[Call] getOrCreateClient...');
       const client = await getOrCreateClient();
+      console.log('[Call] client ready, user:', client.connectedUser?.id);
       const callId = `${identity}-family-hub-${Date.now()}`;
       const call = client.call('default', callId);
+      console.log('[Call] getOrCreate ring:true');
       await call.getOrCreate({
         ring: true,
         data: { members: [{ user_id: identity }, { user_id: 'family-hub' }] },
       });
+      console.log('[Call] joining...');
       await call.join();
+      console.log('[Call] joined, callingState:', call.state.callingState);
       callRef.current = call;
-    } catch {
+    } catch (e) {
+      console.error('[Call] startCall failed:', e);
       setState('error');
+      Alert.alert('Call failed', String(e?.message || e));
       setTimeout(() => setState('idle'), 3000);
     }
   }
@@ -615,19 +622,14 @@ export default function HomeTab() {
             onPress={() => navigation.navigate('Calendar')}
           >
           <View style={{ position: 'relative', height: GRID_HEIGHT + 8 }}>
-            <View style={{ flexDirection: 'row', height: GRID_HEIGHT, marginTop: 8 }}>
+            <View style={{ flexDirection: 'row', height: GRID_HEIGHT, marginTop: 8, overflow: 'visible' }}>
               {/* Hour labels */}
               <View style={{ width: TIMELINE_W, height: GRID_HEIGHT, position: 'relative', overflow: 'visible' }}>
-                {GRID_HOURS.map((h, i) => {
-                  const isFirst = i === 0;
-                  const isLast  = i === GRID_HOURS.length - 1;
-                  const top = isFirst ? 0 : isLast ? i * HOUR_HEIGHT - 10 : i * HOUR_HEIGHT - 5;
-                  return (
-                    <Text key={h} style={[styles.hourLabel, { position: 'absolute', top, right: 5 }]}>
-                      {formatHour(h)}
-                    </Text>
-                  );
-                })}
+                {GRID_HOURS.map((h, i) => (
+                  <Text key={h} style={[styles.hourLabel, { position: 'absolute', top: i * HOUR_HEIGHT - 5, right: 5 }]}>
+                    {formatHour(h)}
+                  </Text>
+                ))}
               </View>
 
               {/* Data columns */}
@@ -635,9 +637,8 @@ export default function HomeTab() {
                 const laid = layoutOverlappingEvents(events[p.key] || []);
                 return (
                   <View key={p.key} style={styles.gridCol}>
-                    {/* Hour lines — skip first (6am) to avoid cutting through label */}
-                    {GRID_HOURS.slice(1).map((_, i) => (
-                      <View key={i + 1} style={[styles.hourLine, { top: (i + 1) * HOUR_HEIGHT }]} />
+                    {GRID_HOURS.map((_, i) => (
+                      <View key={i} style={[styles.hourLine, { top: i * HOUR_HEIGHT }]} />
                     ))}
                     {/* Half-hour lines */}
                     {GRID_HOURS.slice(0, -1).map((_, i) => (

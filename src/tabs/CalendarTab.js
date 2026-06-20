@@ -275,17 +275,13 @@ function PersonAvatar({ person, size = 28 }) {
 const TIMELINE_HOURS = [...GRID_HOURS, GRID_END];
 
 function TimelineLabels() {
-  const last = TIMELINE_HOURS.length - 1;
   return (
     <View style={{ width: TIMELINE_W, height: GRID_H, position: 'relative', overflow: 'visible' }}>
-      {TIMELINE_HOURS.map((h, i) => {
-        const top = i === 0 ? 0 : i === last ? i * HOUR_H - 12 : i * HOUR_H - 5;
-        return (
-          <Text key={h} style={[styles.hourLabel, { position: 'absolute', top, right: 4 }]}>
-            {formatHour(h)}
-          </Text>
-        );
-      })}
+      {TIMELINE_HOURS.map((h, i) => (
+        <Text key={h} style={[styles.hourLabel, { position: 'absolute', top: i * HOUR_H - 6, right: 4 }]}>
+          {formatHour(h)}
+        </Text>
+      ))}
     </View>
   );
 }
@@ -295,8 +291,7 @@ function TimelineLabels() {
 function GridLines() {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {/* Skip i=0 (6am line) — it cuts through the 6am label */}
-      {TIMELINE_HOURS.map((_, i) => i === 0 ? null : (
+      {TIMELINE_HOURS.map((_, i) => (
         <View key={i} style={[styles.gridLine, { top: i * HOUR_H }]} />
       ))}
       {GRID_HOURS.map((_, i) => (
@@ -443,7 +438,7 @@ function WeekView({ events, weekDates, onEventPress, onRefresh, refreshing }) {
           <RefreshControl refreshing={refreshing || false} onRefresh={onRefresh} tintColor={COLORS.timeIndicator} />
         }
       >
-        <View style={{ height: GRID_H, flexDirection: 'row', paddingHorizontal: H_PAD }}>
+        <View style={{ height: GRID_H, flexDirection: 'row', paddingHorizontal: H_PAD, overflow: 'visible' }}>
           <TimelineLabels />
 
           <View style={{ flex: 1, flexDirection: 'row', position: 'relative' }}>
@@ -519,7 +514,7 @@ function DayView({ events, dateStr, onEventPress, onRefresh, refreshing }) {
           <RefreshControl refreshing={refreshing || false} onRefresh={onRefresh} tintColor={COLORS.timeIndicator} />
         }
       >
-        <View style={{ height: GRID_H, flexDirection: 'row', paddingHorizontal: H_PAD }}>
+        <View style={{ height: GRID_H, flexDirection: 'row', paddingHorizontal: H_PAD, overflow: 'visible' }}>
           <TimelineLabels />
 
           <View style={{ flex: 1, flexDirection: 'row', position: 'relative' }}>
@@ -1115,7 +1110,7 @@ const styles = StyleSheet.create({
 
   // timeline
   hourLabel: {
-    fontFamily: FONTS.body, fontSize: 10,
+    fontFamily: FONTS.body, fontSize: 10, lineHeight: 12,
     color: COLORS.textSecondary, textAlign: 'right', paddingRight: 6,
   },
   gridLine: {
