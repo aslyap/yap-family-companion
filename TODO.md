@@ -1,52 +1,36 @@
 # yap-family-companion — Session Handoff
 
-## Status as of 2026-06-20 (session 5)
+## Status as of 2026-06-20 (session 6)
 
 ### Completed this session ✅
-- **SideStore installed on Kath's iPhone** — certificate now auto-renews forever
-  - Used iloader (sidestore.io) + pymobiledevice3 to generate pairing file
-  - SideStore signed in, Yap IPA installed via SideStore
-  - LocalDevVPN "Connect On Demand" enabled → VPN auto-connects for refresh
-  - Background App Refresh enabled for SideStore
-  - Kath doesn't need to do anything — refresh is fully automatic
-- **Hour label alignment fixed** (HomeTab + CalendarTab)
-  - Labels now uniformly centered on their hour lines: `top = i * HOUR_H - lineHeight/2`
-  - Re-enabled 6am grid line, added `overflow: 'visible'` to parent rows
-  - APK build #43 triggered — install on Adrian's phone to verify
-- **Call Home debug logging added** (commit `f5843a5`)
-  - `CallHomeButton.startCall()` now catches + logs errors and shows `Alert.alert`
-  - Kiosk `streamVideo.js` logs client init and token fetches (deployed to Vercel)
+- **Three calling bugs fixed** (commits `ee04a78` + `d1ca3b4` kiosk)
+  1. **Self-ring bug** (App.js `CallOverlay`): when Adrian calls the kiosk, his own call enters RINGING briefly between `getOrCreate()` and `join()`. This caused `IncomingCallScreen` to appear on HIS OWN phone (with vibration + ringtone). Fixed by checking `createdBy.id !== identity` before showing IncomingCallScreen.
+  2. **Kiosk accept bug** (kiosk `IncomingCallOverlay.jsx`): when the kiosk user tapped Accept, `call.join()` transitioned the call from RINGING → JOINED, causing `useCalls()` to stop finding the ringing call, which unmounted the entire overlay before `IncomingActiveCall` could render. Fixed by lifting `activeCall` state to `IncomingCallOverlay` (parent), with `acceptingRef` guard to prevent premature dismiss during the join transition.
+  3. **Stuck spinner bug** (`CallHomeButton`): after call ends, the 📹 button stayed frozen as a spinner. Fixed by subscribing to `call.state.callingState$` after `join()` and resetting to idle when state → `'left'` or `'idle'`.
+- Kiosk deployed to Vercel (auto-deploy via push to main)
+- APK build #44 triggered via push to main
 
 ### Still needed ⚠️
-- **Verify hour label fix** — install APK #43 on Adrian's phone, check Home + Calendar tabs
-- **Fix app-to-kiosk calling** — debug logging now live on both sides:
-  1. Open kiosk DevTools (F12 → Console) — should see `[Stream] creating kiosk client, apiKey: 5azqrwjz9fra`
-  2. Adrian taps 📹 → if error: Alert shows exact message
-  3. Watch kiosk for incoming ring overlay
+- **Verify hour label fix on Adrian's phone** — APK #44 has the f5843a5 fix (`top = i * HOUR_H - 5`). Check Home + Calendar tabs.
+- **Test end-to-end calling with APK #44**:
+  1. Open kiosk (yap-family-home.vercel.app) DevTools → should see `[Stream] creating kiosk client` + `[Stream] token received for family-hub`
+  2. Adrian taps 📹 → should see spinner (no self-ring) → kiosk should show "Dad is calling…" overlay
+  3. Kiosk taps Accept → both sides should show active call video
+  4. Either side taps hang up → both return to normal; Adrian's 📹 button resets to emoji
 
 ---
 
 ## Next session priorities
 
-### (i) Verify hour label fix on Adrian's phone 🟡
-Install APK from GitHub Actions Run #43. Check Home and Calendar tabs:
-- 6am label centered on top grid line
-- 8pm label centered on bottom grid line
-- All hour gaps consistent
+### (i) Test APK #44 end-to-end call flow 🔴
+The three bugs above were identified by code analysis. Install APK #44 and verify:
+- No self-ring on Adrian's phone when he taps 📹
+- Kiosk shows incoming ring overlay ("Dad is calling…")
+- Accepting on kiosk shows active call video
+- Hanging up resets both sides
 
-### (ii) Fix app-to-kiosk calling 🔴
-Debug logging is now live on both sides. To diagnose:
-- Open kiosk in browser → DevTools console → should see `[Stream]` logs on page load
-- Adrian taps 📹 → if error: Alert shows exact message → fix that error
-- If no error on app but kiosk doesn't ring: Stream routing/membership issue
-
-**Relevant files:**
-- App: `src/tabs/HomeTab.js` — `CallHomeButton` (~line 427)
-- App: `src/streamClient.js` — singleton client + token provider
-- App: `App.js` — `StreamWrapper` + `CallOverlay`
-- Kiosk: `src/components/widgets/VideoCall/IncomingCallOverlay.jsx`
-- Kiosk: `src/services/streamVideo.js`
-- Backend: `GET /api/stream/token?user_id=<id>`
+### (ii) Hour label verification 🟡
+Same APK #44. Check Home tab (6am–8pm) and Calendar tab (Day/Week views).
 
 ---
 
