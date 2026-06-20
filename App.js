@@ -70,6 +70,11 @@ function CallOverlay() {
   // IncomingCallScreen (with vibration + ringtone) to the caller themselves.
   const isIncomingRing = ringing && ringing.state.createdBy?.id !== identity;
 
+  useEffect(() => {
+    console.log('[CallOverlay] calls:', calls.map(c => `${c.id.slice(-8)}:${c.state.callingState}`).join(', ') || '(none)');
+    console.log('[CallOverlay] active:', active?.id?.slice(-8) ?? 'null', '| isIncomingRing:', !!isIncomingRing);
+  }, [calls]);
+
   // When backgrounded and a ring arrives, post a local notification so the user
   // can tap through to the app. The ringtone plays via expo-audio even in background
   // (because IOSBackgroundKeepAlive set shouldPlayInBackground: true on the session).
