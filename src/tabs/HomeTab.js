@@ -7,8 +7,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { useStreamVideoClient } from '@stream-io/video-react-native-sdk';
 import { useIdentity } from '../contexts/IdentityContext';
+import { getOrCreateClient } from '../streamClient';
 import { COLORS, FONTS, getAccentColor } from '../theme';
 import { fetchCalendarEvents, invalidateCalendarCache } from '../services/calendarService';
 import { fetchTasks, isTaskForDate, isCompleteForDate, todayStr } from '../services/tasksService';
@@ -425,14 +425,13 @@ function EventBlock({ event, color, light, onPress }) {
 // ─── CallHomeButton ───────────────────────────────────────────────────────────
 
 function CallHomeButton({ identity }) {
-  const client = useStreamVideoClient();
   const [state, setState] = useState('idle');
   const callRef = useRef(null);
 
   async function startCall() {
-    if (!client) return;
     setState('calling');
     try {
+      const client = await getOrCreateClient();
       const callId = `${identity}-family-hub-${Date.now()}`;
       const call = client.call('default', callId);
       await call.getOrCreate({
