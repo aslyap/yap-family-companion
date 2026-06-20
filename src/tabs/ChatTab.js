@@ -207,6 +207,8 @@ export default function ChatTab() {
   const [input, setInput]     = useState('');
   const [busy, setBusy]       = useState(false);
   const [listening, setListening] = useState(false);
+  const [onCooldown, setOnCooldown] = useState(false);
+  const cooldownTimer = useRef(null);
 
   useSpeechRecognitionEvent('start', () => setListening(true));
   useSpeechRecognitionEvent('end', () => setListening(false));
@@ -272,25 +274,31 @@ export default function ChatTab() {
 
   async function send() {
     const text = input.trim();
-    if (!text || busy) return;
+    if (!text || busy || onCooldown) return;
 
     if (msgs.some(m => m.type === 'card' && m.status === 'pending')) {
       Alert.alert('Action pending', 'Please confirm or cancel the pending action first.');
       return;
     }
 
-    setInput('');
     setBusy(true);
     append({ id: uid(), type: 'me', text });
 
     const newHistory = [...history, { role: 'user', content: text }];
     try {
       const resp = await callClaude(newHistory);
+      setInput('');
       ingestResponse(resp, newHistory);
     } catch (e) {
-      const msg = e.message?.includes('rate limit') || e.message?.includes('429') || e.message?.includes('quota')
-        ? 'Too many messages — please wait a moment and try again.'
+      const isRateLimit = e.message?.includes('rate limit') || e.message?.includes('429') || e.message?.includes('quota');
+      const msg = isRateLimit
+        ? 'Too many messages — please wait 60 seconds and try again.'
         : `Sorry, something went wrong: ${e.message || 'unknown error'}`;
+      if (isRateLimit) {
+        setOnCooldown(true);
+        clearTimeout(cooldownTimer.current);
+        cooldownTimer.current = setTimeout(() => setOnCooldown(false), 60_000);
+      }
       append({ id: uid(), type: 'bot', text: msg });
       console.warn('[chat]', e.message);
     } finally {
@@ -400,12 +408,12 @@ export default function ChatTab() {
         />
 
         <TouchableOpacity
-          style={[styles.sendBtn, { backgroundColor: accent }, (!input.trim() || busy) && styles.sendDisabled]}
+          style={[styles.sendBtn, { backgroundColor: accent }, (!input.trim() || busy || onCooldown) && styles.sendDisabled]}
           onPress={send}
-          disabled={!input.trim() || busy}
+          disabled={!input.trim() || busy || onCooldown}
           activeOpacity={0.8}
         >
-          <Text style={styles.sendTxt}>→</Text>
+          <Text style={styles.sendTxt}>{onCooldown ? '…' : '→'}</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>

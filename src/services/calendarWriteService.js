@@ -1,5 +1,12 @@
 import { BACKEND_URL } from '../config';
 import { invalidateCalendarCache } from './calendarService';
+import { supabase } from './supabaseClient';
+
+// Broadcast channel — signals the kiosk to invalidate its Google Calendar cache
+const _calCh = supabase.channel('calendar-updates').subscribe();
+function _broadcastChange() {
+  _calCh.send({ type: 'broadcast', event: 'changed', payload: {} }).catch(() => {});
+}
 
 // Create one event per person in their respective Google Calendar.
 // persons: array of 'maddie' | 'alex' | 'marj' | 'family'
@@ -23,6 +30,7 @@ export async function createCalendarEvent({ persons, title, startISO, endISO, lo
     )
   );
   invalidateCalendarCache();
+  _broadcastChange();
   return results;
 }
 
@@ -39,6 +47,7 @@ export async function updateCalendarEvent({ eventId, person, title, startISO, en
     throw new Error(`Update failed: ${res.status} ${text}`);
   }
   invalidateCalendarCache();
+  _broadcastChange();
   return res.json();
 }
 
@@ -54,4 +63,5 @@ export async function deleteCalendarEvent({ eventId, person }) {
     throw new Error(`Delete failed: ${res.status} ${text}`);
   }
   invalidateCalendarCache();
+  _broadcastChange();
 }
