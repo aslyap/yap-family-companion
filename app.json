@@ -12,8 +12,7 @@
       "bundleIdentifier": "com.yapfamily.companion",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["audio"]
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

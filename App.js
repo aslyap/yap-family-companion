@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, ActivityIndicator, AppState, Platform, PermissionsAndroid, StyleSheet } from 'react-native';
-import { setAudioModeAsync, useAudioPlayer } from 'expo-audio';
 import * as Notifications from 'expo-notifications';
 import { useFonts } from 'expo-font';
 import {
@@ -23,26 +22,6 @@ import IncomingCallScreen from './src/screens/IncomingCallScreen';
 import ActiveCallScreen from './src/screens/ActiveCallScreen';
 import { getOrCreateClient, clearClient } from './src/streamClient';
 import { COLORS } from './src/theme';
-
-// Plays a 0-volume silent audio loop so iOS keeps the app process alive in
-// background, letting the Stream WebSocket stay connected for incoming rings.
-// Only mounted on iOS when the user has selected an identity.
-function IOSBackgroundKeepAlive() {
-  const player = useAudioPlayer(require('./assets/silence.wav'));
-
-  useEffect(() => {
-    setAudioModeAsync({
-      playsInSilentMode: true,
-      shouldPlayInBackground: true,
-    }).catch(() => {});
-    player.loop = true;
-    player.volume = 0;
-    player.play().catch(() => {});
-    return () => { try { player.pause(); } catch (_) {} };
-  }, []);
-
-  return null;
-}
 
 const CALL_NOTIF_ID = 'yap-incoming-call';
 
@@ -202,7 +181,6 @@ function StreamWrapper({ children }) {
   return (
     <>
       {children}
-      {Platform.OS === 'ios' && identity && <IOSBackgroundKeepAlive />}
       {identity && readyClient && (
         <StreamVideo client={readyClient}>
           <CallOverlay />
