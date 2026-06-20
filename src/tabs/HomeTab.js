@@ -622,7 +622,7 @@ export default function HomeTab() {
                 {GRID_HOURS.map((h, i) => {
                   const isFirst = i === 0;
                   const isLast  = i === GRID_HOURS.length - 1;
-                  const top = isFirst ? -7 : isLast ? i * HOUR_HEIGHT - 8 : i * HOUR_HEIGHT - 5;
+                  const top = isFirst ? -10 : isLast ? i * HOUR_HEIGHT - 4 : i * HOUR_HEIGHT - 5;
                   return (
                     <Text key={h} style={[styles.hourLabel, { position: 'absolute', top, right: 5 }]}>
                       {formatHour(h)}

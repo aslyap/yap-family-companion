@@ -279,7 +279,7 @@ function TimelineLabels() {
   return (
     <View style={{ width: TIMELINE_W, height: GRID_H, position: 'relative', overflow: 'visible' }}>
       {TIMELINE_HOURS.map((h, i) => {
-        const top = i === 0 ? -7 : i === last ? i * HOUR_H - 8 : i * HOUR_H - 5;
+        const top = i === 0 ? 2 : i === last ? i * HOUR_H - 8 : i * HOUR_H - 5;
         return (
           <Text key={h} style={[styles.hourLabel, { position: 'absolute', top, right: 4 }]}>
             {formatHour(h)}
@@ -1103,7 +1103,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 8,
-    paddingVertical: 2,
+    paddingTop: 0,
+    paddingBottom: 3,
     paddingHorizontal: H_PAD,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLORS.border,
@@ -1136,7 +1137,7 @@ const styles = StyleSheet.create({
   },
 
   // month view
-  monthHeaderRow: { flexDirection: 'row', marginBottom: 4 },
+  monthHeaderRow: { flexDirection: 'row', marginBottom: 4, marginTop: 5 },
   monthWeekdayLabel: {
     fontFamily: FONTS.heading, fontSize: 11, letterSpacing: 0.5,
     color: COLORS.textSecondary, textAlign: 'center',
