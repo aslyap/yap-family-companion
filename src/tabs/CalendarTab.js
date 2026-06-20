@@ -279,7 +279,7 @@ function TimelineLabels() {
   return (
     <View style={{ width: TIMELINE_W, height: GRID_H, position: 'relative', overflow: 'visible' }}>
       {TIMELINE_HOURS.map((h, i) => {
-        const top = i === 0 ? 2 : i === last ? i * HOUR_H - 8 : i * HOUR_H - 5;
+        const top = i === 0 ? 0 : i === last ? i * HOUR_H - 12 : i * HOUR_H - 5;
         return (
           <Text key={h} style={[styles.hourLabel, { position: 'absolute', top, right: 4 }]}>
             {formatHour(h)}

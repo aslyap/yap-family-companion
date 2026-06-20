@@ -376,13 +376,11 @@ const styles = StyleSheet.create({
   weekNav: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 8,
-    paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  navBtn: { width: 44, alignItems: 'center', justifyContent: 'center', paddingTop: 8, paddingBottom: 10 },
-  navArrow: { fontSize: 22, color: COLORS.adrian, lineHeight: 26 },
+  navBtn: { width: 44, height: 48, alignItems: 'center', justifyContent: 'center' },
+  navArrow: { fontSize: 24, color: COLORS.adrian, lineHeight: 28 },
   navCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   navLabel: {
     fontFamily: FONTS.headingBold,
