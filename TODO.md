@@ -14,29 +14,28 @@
 
 ## Next session work items
 
-### (i) Vercel kiosk refinements (TBD by user)
-- Kiosk repo: `c:\Users\user\Desktop\Digital Dashboard\yap-family-home`
-- Deployed to Vercel (auto-deploys on push to main)
-- Recent fix: events past 8pm now clipped at grid boundary (overflow:hidden + height clamped)
+### (i) APK — trigger new build
+Run #39 (2026-06-19) missed the last HomeTab fix (`90be81e` — clip events at 8pm).
+All fixes are now on main. Manually trigger "Build Android APK" in GitHub Actions.
 
-### (ii) APK refinements
-Recent fixes committed (need new APK build via GitHub Actions):
-- HomeTab: calendar grid fixed to GRID_HEIGHT (no more gap between 8pm and Tasks)
-- HomeTab: whole home screen is now a ScrollView (days with many events scroll rather than clip)
-- HomeTab: 6am label now visible (8px top padding added to grid area)
-- HomeTab: event blocks clipped at 8pm via overflow:hidden on gridCol
-- TasksTab: gap between avatar banner and first task reduced (paddingTop 8→4)
+### (ii) iOS IPA ✅
+Run #5 succeeded. Artifact: `yap-family-companion-ipa` (~18.6 MB), expires 2026-07-19.
+Download: GitHub Actions → "Build iOS IPA (SideStore)" → Run #5 → Artifacts.
+Next step: install via SideStore on Kath's iPhone (needs SideServer on same network).
 
-To build new APK: GitHub Actions → "Build Android APK" → Run workflow
+### (iii) Kiosk real-time calendar sync ✅ (deployed)
+Fixed: companion app now broadcasts a Supabase signal after every calendar create/edit/delete.
+Kiosk listens on `calendar-updates` channel → clears gcal sessionStorage cache → re-fetches immediately.
+No more 1-minute delay after adding events in the app.
 
-### (iii) iOS IPA build — in progress
-- GitHub Actions workflow: `.github/workflows/build-ios.yml`
-- Scheme detection fixed (ls -d, scheme = YapFamily)
-- Runner changed to macos-15 + latest-stable Xcode (fixes Swift tools version 6.2 SPM error)
-- Last run (#4) failed with Swift tools version mismatch — new workflow should fix this
-- To test: GitHub Actions → "Build iOS IPA (SideStore)" → Run workflow
-- If build succeeds: download IPA artifact → install via SideStore on Kath's iPhone
-- SideStore requires: pairing file from SideServer running on a Mac/PC on same network
+### (iv) Chat rate limiting ✅
+Root cause: Gemini 2.5 Flash free tier (10 RPM). Agentic loop can use up to 6 calls per message,
+so a successful event-add followed immediately by a second message could hit the limit.
+Frontend fixes applied:
+- Input is preserved on error (not cleared before API call) — user doesn't have to retype
+- 60-second client-side cooldown after a 429; send button shows "…" during cooldown
+Backend fix still needed: add retry-with-backoff in the Fly.io chat handler for Gemini 429s.
+The backend code is on Fly.io (not in any local repo directory on this machine).
 
 ---
 
@@ -47,13 +46,16 @@ To build new APK: GitHub Actions → "Build Android APK" → Run workflow
 - `GRID_HEIGHT = 364` (14 * 26) — HomeTab full grid height
 - Supabase URL: https://ygwpigynmxhavqucvwbp.supabase.co
 - Fly.io backend: https://yap-calendar-backend.fly.dev
-- Chat AI: Gemini 2.5 Flash (GEMINI_API_KEY set as Fly secret)
+- Chat AI: Gemini 2.5 Flash (GEMINI_API_KEY set as Fly secret, free tier, 10 RPM)
+- Kiosk calendar broadcast channel: `calendar-updates` (Supabase real-time)
 
 ## Key files
 - `src/tabs/HomeTab.js` — home screen (calendar grid + tasks + meal plan)
 - `src/tabs/TasksTab.js` — tasks tab
 - `src/tabs/CalendarTab.js` — full calendar
-- `src/tabs/ChatTab.js` — AI chat (Gemini)
+- `src/tabs/ChatTab.js` — AI chat (Gemini); cooldown state + input-preserve on error
+- `src/services/calendarWriteService.js` — calendar CRUD + Supabase broadcast
 - `.github/workflows/build-android.yml` — Android APK build
 - `.github/workflows/build-ios.yml` — iOS IPA build (SideStore, unsigned)
+- Kiosk: `c:\Users\user\Desktop\Digital Dashboard\yap-family-home\src\App.jsx`
 - Kiosk: `c:\Users\user\Desktop\Digital Dashboard\yap-family-home\src\components\PersonColumn.jsx`
