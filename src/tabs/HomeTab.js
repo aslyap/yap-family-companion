@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useIdentity } from '../contexts/IdentityContext';
 import { getOrCreateClient } from '../streamClient';
+import { setOutgoingCall } from '../outgoingCallStore';
 import { COLORS, FONTS, getAccentColor } from '../theme';
 import { fetchCalendarEvents, invalidateCalendarCache } from '../services/calendarService';
 import { fetchTasks, isTaskForDate, isCompleteForDate, todayStr } from '../services/tasksService';
@@ -449,10 +450,14 @@ function CallHomeButton({ identity }) {
       await call.join();
       console.log('[Call] joined, callingState:', call.state.callingState);
       callRef.current = call;
+      // Notify CallOverlay directly — useCalls() inside <StreamVideo> does not
+      // track calls created externally, so we push the call via the store.
+      setOutgoingCall(call);
       // Reset the button once the call ends (kiosk hangs up, timeout, etc.)
       subRef.current = call.state.callingState$.subscribe(cs => {
         if (cs === 'left' || cs === 'idle') {
           callRef.current = null;
+          setOutgoingCall(null);
           subRef.current?.unsubscribe?.();
           subRef.current = null;
           setState('idle');
@@ -472,6 +477,7 @@ function CallHomeButton({ identity }) {
     try {
       if (callRef.current) { await callRef.current.leave({ reject: true }); callRef.current = null; }
     } catch {}
+    setOutgoingCall(null);
     setState('idle');
   }
 

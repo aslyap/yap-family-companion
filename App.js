@@ -21,6 +21,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import IncomingCallScreen from './src/screens/IncomingCallScreen';
 import ActiveCallScreen from './src/screens/ActiveCallScreen';
 import { getOrCreateClient, clearClient } from './src/streamClient';
+import { onOutgoingCallChange, getOutgoingCall } from './src/outgoingCallStore';
 import { COLORS } from './src/theme';
 
 const CALL_NOTIF_ID = 'yap-incoming-call';
@@ -38,6 +39,10 @@ function CallOverlay() {
   );
   const userDeclinedRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
+  // Outgoing calls created in HomeTab are not tracked by useCalls() because
+  // they are created outside the <StreamVideo> context. Subscribe to the store.
+  const [outgoingCall, setOutgoingCallState] = useState(() => getOutgoingCall());
+  useEffect(() => onOutgoingCallChange(call => setOutgoingCallState(call)), []);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', s => { appStateRef.current = s; });
@@ -75,11 +80,12 @@ function CallOverlay() {
     }
   }, [isIncomingRing]);
 
-  if (active) {
+  const displayActive = active || outgoingCall;
+  if (displayActive) {
     return (
       <View style={StyleSheet.absoluteFillObject}>
-        <StreamCall call={active}>
-          <ActiveCallScreen onLeft={() => {}} />
+        <StreamCall call={displayActive}>
+          <ActiveCallScreen onLeft={() => setOutgoingCallState(null)} />
         </StreamCall>
       </View>
     );
