@@ -619,7 +619,6 @@ export default function HomeTab() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={{ flex: 1 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
         {/* Calendar col headers — tappable, fixed height */}
         <TouchableOpacity
           activeOpacity={0.95}
@@ -636,18 +635,18 @@ export default function HomeTab() {
           </View>
         </TouchableOpacity>
 
-        {/* Calendar grid — fixed height so Tasks always anchors to 8pm line */}
-        <View style={{ height: GRID_HEIGHT + 8, overflow: 'hidden' }}>
+        {/* Calendar grid — 10px extra height so 8pm label is not clipped */}
+        <View style={{ height: GRID_HEIGHT + 10 }}>
           <TouchableOpacity
             activeOpacity={0.95}
             onPress={() => navigation.navigate('Calendar')}
           >
-          <View style={{ position: 'relative', height: GRID_HEIGHT + 8 }}>
-            <View style={{ flexDirection: 'row', height: GRID_HEIGHT, marginTop: 8, overflow: 'visible' }}>
-              {/* Hour labels */}
+          <View style={{ position: 'relative', height: GRID_HEIGHT + 10 }}>
+            <View style={{ flexDirection: 'row', height: GRID_HEIGHT, overflow: 'visible' }}>
+              {/* Hour labels — clamp 6am to top:1 so it is never clipped */}
               <View style={{ width: TIMELINE_W, height: GRID_HEIGHT, position: 'relative', overflow: 'visible' }}>
                 {GRID_HOURS.map((h, i) => (
-                  <Text key={h} style={[styles.hourLabel, { position: 'absolute', top: i * HOUR_HEIGHT - 5, right: 5 }]}>
+                  <Text key={h} style={[styles.hourLabel, { position: 'absolute', top: Math.max(1, i * HOUR_HEIGHT - 5), right: 5 }]}>
                     {formatHour(h)}
                   </Text>
                 ))}
@@ -681,7 +680,7 @@ export default function HomeTab() {
             </View>
 
             {tiTop >= 0 && (
-              <View pointerEvents="none" style={[styles.timeIndicator, { top: tiTop + 8 }]}>
+              <View pointerEvents="none" style={[styles.timeIndicator, { top: tiTop }]}>
                 <View style={styles.timeIndicatorDot} />
               </View>
             )}
@@ -703,7 +702,7 @@ export default function HomeTab() {
             ))}
           </View>
         </TouchableOpacity>
-        <View style={{ flexDirection: 'row', height: 110 }}>
+        <View style={{ flex: 1, flexDirection: 'row' }}>
           <View style={{ width: TIMELINE_W }} />
           {PERSONS.map(p => {
             const colTasks = tasksFor(p.key);
@@ -800,7 +799,6 @@ export default function HomeTab() {
             </View>
           </View>
         </TouchableOpacity>
-      </ScrollView>
 
       {/* Event edit sheet */}
       {editingEvent && (
