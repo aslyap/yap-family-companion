@@ -646,7 +646,7 @@ export default function HomeTab() {
               {/* Hour labels — clamp 6am to top:1 so it is never clipped */}
               <View style={{ width: TIMELINE_W, height: GRID_HEIGHT, position: 'relative', overflow: 'visible' }}>
                 {GRID_HOURS.map((h, i) => (
-                  <Text key={h} style={[styles.hourLabel, { position: 'absolute', top: Math.max(1, i * HOUR_HEIGHT - 5), right: 5 }]}>
+                  <Text key={h} style={[styles.hourLabel, { position: 'absolute', top: i * HOUR_HEIGHT - 5, right: 5 }]}>
                     {formatHour(h)}
                   </Text>
                 ))}

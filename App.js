@@ -31,16 +31,29 @@ const CALL_NOTIF_ID = 'yap-incoming-call';
 function CallOverlay() {
   const calls = useCalls();
   const { identity } = useIdentity();
-  const ringing = calls.find(c => c.state.callingState === CallingState.RINGING);
+
+  // Calls we initiated — useCalls() may track them as RINGING (before kiosk accepts)
+  // or JOINED/JOINING (after kiosk accepts).
+  const outgoingRinging = calls.find(
+    c =>
+      c.state.callingState === CallingState.RINGING &&
+      c.state.createdBy?.id === identity,
+  );
   const active = calls.find(
     c =>
       c.state.callingState === CallingState.JOINED ||
       c.state.callingState === CallingState.JOINING,
   );
+  // Incoming ring: a RINGING call that someone ELSE created.
+  const incomingRingCall = calls.find(
+    c =>
+      c.state.callingState === CallingState.RINGING &&
+      c.state.createdBy?.id !== identity,
+  );
+
   const userDeclinedRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
-  // Outgoing calls created in HomeTab are not tracked by useCalls() because
-  // they are created outside the <StreamVideo> context. Subscribe to the store.
+  // Belt-and-suspenders store: catches the call even if useCalls() misses it.
   const [outgoingCall, setOutgoingCallState] = useState(() => getOutgoingCall());
   useEffect(() => onOutgoingCallChange(call => setOutgoingCallState(call)), []);
 
@@ -49,21 +62,13 @@ function CallOverlay() {
     return () => sub.remove();
   }, []);
 
-  // When the current user placed the outgoing call, their own call briefly enters
-  // RINGING state between getOrCreate() and join(). Guard against showing the
-  // IncomingCallScreen (with vibration + ringtone) to the caller themselves.
-  const isIncomingRing = ringing && ringing.state.createdBy?.id !== identity;
+  useEffect(() => {
+    console.log('[CallOverlay] calls:', calls.map(c => `${c.id.slice(-8)}:${c.state.callingState}:createdBy=${c.state.createdBy?.id}`).join(', ') || '(none)');
+    console.log('[CallOverlay] active:', active?.id?.slice(-8) ?? 'null', '| outgoingRinging:', outgoingRinging?.id?.slice(-8) ?? 'null', '| outgoingCallStore:', outgoingCall?.id?.slice(-8) ?? 'null', '| incomingRing:', incomingRingCall?.id?.slice(-8) ?? 'null');
+  }, [calls, outgoingCall]);
 
   useEffect(() => {
-    console.log('[CallOverlay] calls:', calls.map(c => `${c.id.slice(-8)}:${c.state.callingState}`).join(', ') || '(none)');
-    console.log('[CallOverlay] active:', active?.id?.slice(-8) ?? 'null', '| isIncomingRing:', !!isIncomingRing);
-  }, [calls]);
-
-  // When backgrounded and a ring arrives, post a local notification so the user
-  // can tap through to the app. The ringtone plays via expo-audio even in background
-  // (because IOSBackgroundKeepAlive set shouldPlayInBackground: true on the session).
-  useEffect(() => {
-    if (!isIncomingRing) {
+    if (!incomingRingCall) {
       Notifications.dismissNotificationAsync(CALL_NOTIF_ID).catch(() => {});
       return;
     }
@@ -78,9 +83,11 @@ function CallOverlay() {
         trigger: null,
       }).catch(() => {});
     }
-  }, [isIncomingRing]);
+  }, [incomingRingCall]);
 
-  const displayActive = active || outgoingCall;
+  // Show active screen for: joined call, our outgoing ring (waiting for kiosk to accept),
+  // or store-tracked call (belt-and-suspenders if useCalls() missed it).
+  const displayActive = active || outgoingRinging || outgoingCall;
   if (displayActive) {
     return (
       <View style={StyleSheet.absoluteFillObject}>
@@ -90,10 +97,10 @@ function CallOverlay() {
       </View>
     );
   }
-  if (isIncomingRing) {
+  if (incomingRingCall) {
     return (
       <View style={StyleSheet.absoluteFillObject}>
-        <StreamCall call={ringing}>
+        <StreamCall call={incomingRingCall}>
           <IncomingCallScreen
             onAccepted={() => {}}
             onDeclineStart={() => { userDeclinedRef.current = true; }}
