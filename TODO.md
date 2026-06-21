@@ -1,79 +1,94 @@
 # yap-family-companion — Session Handoff
 
-## Status as of 2026-06-20 (session 7)
+## Status as of 2026-06-21 (session 8)
 
 ### Completed this session ✅
-- **iOS companion app working on Kath's iPhone** via SideStore
-  - Stream Video calling works when app is open (foreground)
-  - Kiosk "Call Mum" now uses `ring: true` for Kath (ntfy removed)
-- **Groq `tool_use_failed` retry fix** — backend retries on 400/429/502/503 with exponential backoff
-- **Keyboard fix (iOS Chat)** — `keyboardVerticalOffset` now `insets.top + 52` (was flat 52, covered input)
-- **IncomingCallScreen safe area fix** — padding respects notch/home indicator on iPhone
-- **Kiosk ntfy removed** — `notifyCallee()` call deleted from `startCall()` in `streamVideo.js`
 
-### Still needs to be done before next session ⚠️
-1. **Trigger GitHub Actions builds** (both):
-   - Go to `github.com/aslyap/yap-family-companion` → Actions
-   - Run **"Build Android APK"** → Run workflow
-   - Run **"Build iOS IPA"** → Run workflow
-2. **Install new IPA on Kath's phone** via SideStore once build completes
-3. **Deploy backend** on Beelink (Groq retry fix):
-   ```powershell
-   cd "C:\Users\Yap Family Dashboard\Desktop\Digital Dashboard\yap-family-home"
-   git pull
-   & "C:\Users\Yap Family Dashboard\.fly\bin\flyctl.exe" deploy
-   ```
-4. **Set up SideStore auto-refresh shortcut on Kath's iPhone** (see below)
+**Kiosk (yap-family-home — live on Vercel)**
+- IncomingCallOverlay accept race condition fixed — `onActive(call)` now called before camera/mic enable
+- Kiosk ring sound — office phone MP3 (Pixabay) via HTML `<audio>` element, loops at full volume
+- Screensaver auto-dismisses on incoming call (`yap-incoming-call` CustomEvent)
+- Screensaver z-index raised to 10001 (was 400, below screensaver's 9999)
+- ntfy re-added to `startCall()` with `yapfamily://` deep link, 6 notifications over 20s
+- Backend deployed on Fly.io (Groq retry fix — retries on 400/429/502/503)
+- Debug logging in IncomingCallOverlay (can remove once stable)
+
+**Companion app (builds triggered, pending install)**
+- iOS crash fix — removed `IOSBackgroundKeepAlive` which crashed on identity selection
+- IncomingCallScreen safe area fix — buttons no longer cut off on iPhone
+- Chat keyboard fix — `insets.top + 52` offset
+- Home tab layout — gap between col headers and 6am removed, 6am/8pm labels visible, Meal Plan always visible at bottom, Tasks uses `flex:1` with per-column scroll
+- Calendar tab — 6am label no longer clipped
+- Android calling fix — `outgoingCallStore.js` bridges outgoing call to `CallOverlay` (was invisible to `useCalls()`)
+- Local notification in `CallOverlay` when ring arrives while iOS app is backgrounded
+
+### Confirmed working ✅
+- Android → Kiosk: call screen appears, screensaver dismisses, ring plays, Accept works
+- Kiosk → Android: works when app is open
 
 ---
 
-## SideStore Auto-Refresh Setup (do on Kath's iPhone)
+## Immediate next steps (do before testing)
 
-SideStore needs a daily refresh to prevent the 7-day Apple cert from expiring.
-An iOS Shortcuts automation handles this silently at midnight.
+1. **Install new APK** on Adrian's Oppo (build triggered, check GitHub Actions)
+2. **Install new IPA** on Kath's iPhone via SideStore (build triggered)
+3. **Set Stream ring timeout to 60s**
+   - Stream Dashboard → Video → Call Types → `default` → Ring Timeout → set to 60
+   - Required so ntfy has time to alert Kath before call expires
+4. **Deploy backend on Beelink** (already done this session ✅)
 
-**Step 1 — Install the shortcut:**
-Open Safari on Kath's iPhone and navigate to:
+---
+
+## SideStore Auto-Refresh (still pending on Kath's iPhone)
+
+**Step 1 — Install shortcut:**
+Open Safari on Kath's iPhone → navigate to:
 ```
 https://www.icloud.com/shortcuts/46e9ca6015094e0b868233816b575c2e
 ```
 Tap "Add Shortcut".
 
-**Step 2 — Create the automation:**
-1. Open **Shortcuts** app → **Automation** tab → tap **+**
-2. Choose **Time of Day** → set to **12:00 AM**, repeat **Daily**
-3. Tap **Next** → find and select the **SideStore** shortcut
-4. **Disable "Ask Before Running"** ← critical, otherwise it prompts Kath every night
-5. Tap **Done**
-
-Kath never needs to manually open SideStore again. Source: https://github.com/orgs/SideStore/discussions/1096
+**Step 2 — Create automation:**
+1. Shortcuts app → Automation tab → **+**
+2. Time of Day → 12:00 AM, Daily
+3. Next → select SideStore shortcut
+4. **Disable "Ask Before Running"** ← critical
+5. Done
 
 ---
 
-## Next session priorities
+## ntfy setup on Kath's iPhone (for background calling)
 
-### (i) 2-way calling — both iOS and Android 🟡
-Current state:
-- **App → Kiosk** (Adrian taps 📹): being debugged in a separate session. Stream ring + kiosk overlay should work. Verify with new APK.
-- **Kiosk → App (foreground)**: works — `ring: true` set for both `kath` and `adrian`
-- **Kiosk → App (background)**: ✅ IMPLEMENTED — silent audio keep-alive trick
-  - `assets/silence.wav` (8KB, 0.5s loop at vol 0) keeps iOS process alive in background
-  - `UIBackgroundModes: ["audio"]` added to app.json
-  - `IOSBackgroundKeepAlive` component sets `shouldPlayInBackground: true` on the audio session
-  - Stream WebSocket stays connected → ring events detected even when backgrounded
-  - IncomingCallScreen mounts in background → ringtone plays even when screen is locked
-  - Local notification posted when ring arrives in background so Kath can tap to foreground
-  - **Limitation**: if app is force-quit (swiped away), it won't wake. User must have opened app at least once since reboot. APNs VoIP (paid developer account) is the only fix for force-quit.
-- **Android (Adrian)**: FCM via `setPushConfig` in index.js — test with new APK to verify
+1. Install **ntfy** app (free, App Store)
+2. Subscribe to the topic set in `VITE_NTFY_TOPIC_KATH` on Vercel env vars
+3. When kiosk calls Kath, ntfy sends a push notification with `yapfamily://` deep link
+4. Tapping opens the app → IncomingCallScreen appears
+5. Requires Stream ring timeout ≥ 60s (see above)
 
-### (ii) SideStore auto-refresh ✅ (pending setup on Kath's phone)
-Instructions above. Once done, verify by checking the automation ran the next morning.
+---
 
-### (iii) UX tweaks — kiosk and both apps 🟡
-Gather list of UX issues from testing the new builds. Known issues:
-- IncomingCallScreen button layout cut off (fixed in new build — verify)
-- Chat keyboard covering input on iOS (fixed in new build — verify)
-- Any other UX issues discovered during call testing
+## Remaining items
+
+### iOS (Kath's iPhone)
+- [ ] Install new IPA via SideStore
+- [ ] Set up SideStore auto-refresh shortcut (instructions above)
+- [ ] Install ntfy app and subscribe to topic
+- [ ] Test kiosk → Kath calling (foreground)
+- [ ] Test Kath → Kiosk calling
+- [ ] Background calling when phone is locked — `IOSBackgroundKeepAlive` was removed due to crash. Needs re-investigation with a valid silence.wav (the PowerShell-generated one was malformed). ntfy is the current workaround.
+
+### Android (Adrian's Oppo)
+- [ ] Install new APK
+- [ ] Test Adrian → Kiosk calling (spinner fix — `ActiveCallScreen` should now show)
+- [ ] Test Kiosk → Adrian calling
+- [ ] Verify video works both directions
+
+### Kiosk
+- [ ] Set Stream ring timeout to 60s in Stream Dashboard
+- [ ] Remove `[IncomingCall]` debug console.log lines from `IncomingCallOverlay.jsx` once calling is stable
+
+### Backend
+- [x] Groq retry fix deployed ✅
 
 ---
 
@@ -89,13 +104,18 @@ Gather list of UX issues from testing the new builds. Known issues:
 
 ## Key files
 - `src/tabs/ChatTab.js` — AI chat (Groq), keyboard fix here
-- `src/screens/IncomingCallScreen.js` — incoming call UI, safe area fix here
-- `src/streamClient.js` — Stream Video singleton client + token provider
+- `src/tabs/HomeTab.js` — Home tab, layout constants HOUR_HEIGHT/GRID_HEIGHT/TIMELINE_W
+- `src/tabs/CalendarTab.js` — Calendar, HOUR_H = 30
+- `src/screens/IncomingCallScreen.js` — incoming call UI (iOS/Android)
+- `src/screens/ActiveCallScreen.js` — active call UI
+- `src/outgoingCallStore.js` — bridges outgoing call from HomeTab to CallOverlay
 - `App.js` — StreamWrapper + CallOverlay (incoming/active call UI)
+- `src/streamClient.js` — Stream Video singleton client + token provider
 - `.github/workflows/build-android.yml` — Android APK build
 - `.github/workflows/build-ios.yml` — iOS IPA build
 - Kiosk stream service: `src/services/streamVideo.js` (in yap-family-home repo)
-- Kiosk call overlay: `src/components/widgets/VideoCall/VideoCallOverlay.jsx`
+- Kiosk call overlay: `src/components/widgets/VideoCall/IncomingCallOverlay.jsx`
+- Kiosk screensaver: `src/components/ArtScreensaver.jsx`
 - Backend: `calendar_backend.py` (in yap-family-home repo)
 
 ## SideStore setup reference
