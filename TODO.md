@@ -1,41 +1,39 @@
 # yap-family-companion — Session Handoff
 
-## Status as of 2026-06-21 (session 8)
+## Status as of 2026-06-21 (session 9)
 
 ### Completed this session ✅
 
-**Kiosk (yap-family-home — live on Vercel)**
-- IncomingCallOverlay accept race condition fixed — `onActive(call)` now called before camera/mic enable
-- Kiosk ring sound — office phone MP3 (Pixabay) via HTML `<audio>` element, loops at full volume
-- Screensaver auto-dismisses on incoming call (`yap-incoming-call` CustomEvent)
-- Screensaver z-index raised to 10001 (was 400, below screensaver's 9999)
-- ntfy re-added to `startCall()` with `yapfamily://` deep link, 6 notifications over 20s
-- Backend deployed on Fly.io (Groq retry fix — retries on 400/429/502/503)
-- Debug logging in IncomingCallOverlay (can remove once stable)
+**Stream Dashboard**
+- Ring timeouts updated to 90000ms (Auto-Cancel, Incoming Call, Missed Call)
+- Target Video Resolution set to 2160p (cosmetic, no real impact on phone cameras)
 
-**Companion app (builds triggered, pending install)**
-- iOS crash fix — removed `IOSBackgroundKeepAlive` which crashed on identity selection
-- IncomingCallScreen safe area fix — buttons no longer cut off on iPhone
-- Chat keyboard fix — `insets.top + 52` offset
-- Home tab layout — gap between col headers and 6am removed, 6am/8pm labels visible, Meal Plan always visible at bottom, Tasks uses `flex:1` with per-column scroll
-- Calendar tab — 6am label no longer clipped
-- Android calling fix — `outgoingCallStore.js` bridges outgoing call to `CallOverlay` (was invisible to `useCalls()`)
-- Local notification in `CallOverlay` when ring arrives while iOS app is backgrounded
+**Companion app (builds triggered — pending install)**
+- Android calling fix v2 — `CallOverlay` now detects outgoing call via three sources:
+  1. `outgoingRinging`: `useCalls()` RINGING call where `createdBy === identity`
+  2. `outgoingCall`: store-based fallback (outgoingCallStore.js)
+  3. `active`: JOINED/JOINING call from `useCalls()`
+  Debug log now shows all four sources on every state change.
+- Hour label alignment fix — removed `Math.max` clamp on 6am label in both
+  `HomeTab.js` and `CalendarTab.js`. Label now sits at `top: -5/-6px` above
+  the grid line (matching kiosk's `margin-top: -5px`), visible via
+  `overflow: visible` on both containers. Applies to Home, Calendar Day, Calendar Week.
 
 ### Confirmed working ✅
-- Android → Kiosk: call screen appears, screensaver dismisses, ring plays, Accept works
+- Android → Kiosk: call connects, kiosk shows video (spinner fix still pending install)
 - Kiosk → Android: works when app is open
+- Kiosk ring timeout: 90s (was 15s)
 
 ---
 
-## Immediate next steps (do before testing)
+## Immediate next steps
 
-1. **Install new APK** on Adrian's Oppo (build triggered, check GitHub Actions)
-2. **Install new IPA** on Kath's iPhone via SideStore (build triggered)
-3. **Set Stream ring timeout to 60s**
-   - Stream Dashboard → Video → Call Types → `default` → Ring Timeout → set to 60
-   - Required so ntfy has time to alert Kath before call expires
-4. **Deploy backend on Beelink** (already done this session ✅)
+1. **Trigger builds** (both are `workflow_dispatch` — push does NOT auto-trigger)
+   - GitHub Actions → "Build Android APK" → Run workflow
+   - GitHub Actions → "Build iOS IPA (SideStore)" → Run workflow
+2. **Install new APK** on Adrian's Oppo
+3. **Install new IPA** on Kath's iPhone via SideStore
+4. **Test calling** — if still broken, share logcat (`[CallOverlay]` lines) to diagnose
 
 ---
 
@@ -63,29 +61,33 @@ Tap "Add Shortcut".
 2. Subscribe to the topic set in `VITE_NTFY_TOPIC_KATH` on Vercel env vars
 3. When kiosk calls Kath, ntfy sends a push notification with `yapfamily://` deep link
 4. Tapping opens the app → IncomingCallScreen appears
-5. Requires Stream ring timeout ≥ 60s (see above)
+5. Requires Stream ring timeout ≥ 60s (now 90s ✅)
 
 ---
 
 ## Remaining items
 
 ### iOS (Kath's iPhone)
-- [ ] Install new IPA via SideStore
+- [ ] Trigger + install new IPA via SideStore
 - [ ] Set up SideStore auto-refresh shortcut (instructions above)
 - [ ] Install ntfy app and subscribe to topic
 - [ ] Test kiosk → Kath calling (foreground)
 - [ ] Test Kath → Kiosk calling
-- [ ] Background calling when phone is locked — `IOSBackgroundKeepAlive` was removed due to crash. Needs re-investigation with a valid silence.wav (the PowerShell-generated one was malformed). ntfy is the current workaround.
+- [ ] Background calling when phone is locked — `IOSBackgroundKeepAlive` was removed
+      due to crash. Needs re-investigation with a valid `silence.wav` (the
+      PowerShell-generated one was malformed). ntfy is the current workaround.
 
 ### Android (Adrian's Oppo)
-- [ ] Install new APK
-- [ ] Test Adrian → Kiosk calling (spinner fix — `ActiveCallScreen` should now show)
+- [ ] Trigger + install new APK
+- [ ] Test Adrian → Kiosk calling (ActiveCallScreen should now overlay)
 - [ ] Test Kiosk → Adrian calling
 - [ ] Verify video works both directions
+- [ ] If still broken: share logcat `[CallOverlay]` lines to diagnose which
+      detection source (outgoingRinging / outgoingCall / active) fires
 
 ### Kiosk
-- [ ] Set Stream ring timeout to 60s in Stream Dashboard
-- [ ] Remove `[IncomingCall]` debug console.log lines from `IncomingCallOverlay.jsx` once calling is stable
+- [ ] Remove `[IncomingCall]` debug console.log lines from `IncomingCallOverlay.jsx`
+      once calling is confirmed stable on both devices
 
 ### Backend
 - [x] Groq retry fix deployed ✅
@@ -105,14 +107,14 @@ Tap "Add Shortcut".
 ## Key files
 - `src/tabs/ChatTab.js` — AI chat (Groq), keyboard fix here
 - `src/tabs/HomeTab.js` — Home tab, layout constants HOUR_HEIGHT/GRID_HEIGHT/TIMELINE_W
-- `src/tabs/CalendarTab.js` — Calendar, HOUR_H = 30
+- `src/tabs/CalendarTab.js` — Calendar, HOUR_H = 30, TimelineLabels component
 - `src/screens/IncomingCallScreen.js` — incoming call UI (iOS/Android)
 - `src/screens/ActiveCallScreen.js` — active call UI
 - `src/outgoingCallStore.js` — bridges outgoing call from HomeTab to CallOverlay
 - `App.js` — StreamWrapper + CallOverlay (incoming/active call UI)
 - `src/streamClient.js` — Stream Video singleton client + token provider
-- `.github/workflows/build-android.yml` — Android APK build
-- `.github/workflows/build-ios.yml` — iOS IPA build
+- `.github/workflows/build-android.yml` — Android APK build (workflow_dispatch only)
+- `.github/workflows/build-ios.yml` — iOS IPA build (workflow_dispatch only)
 - Kiosk stream service: `src/services/streamVideo.js` (in yap-family-home repo)
 - Kiosk call overlay: `src/components/widgets/VideoCall/IncomingCallOverlay.jsx`
 - Kiosk screensaver: `src/components/ArtScreensaver.jsx`
