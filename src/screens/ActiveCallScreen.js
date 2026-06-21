@@ -30,10 +30,14 @@ export default function ActiveCallScreen({ onLeft }) {
   }, [callingState]);
 
   // Fallback: kiosk left without calling end() (network drop, call.leave(), etc).
-  // 2-second grace window avoids triggering on brief network blips.
+  // We must call leave() ourselves — otherwise the call stays JOINED locally and
+  // the overlay never dismisses. 2-second grace window avoids brief network blips.
   useEffect(() => {
     if (remotes.length > 0 || !hadRemoteRef.current) return;
-    const t = setTimeout(() => onLeft(), 2000);
+    const t = setTimeout(async () => {
+      try { await call.leave(); } catch {}
+      onLeft();
+    }, 2000);
     return () => clearTimeout(t);
   }, [remotes.length]);
 

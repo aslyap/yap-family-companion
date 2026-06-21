@@ -32,7 +32,9 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
   async function accept() {
     // Enable tracks before joining so CallContent has video ready when it mounts.
     await Promise.all([
-      call.camera.enable().catch(e => console.warn('[IncomingCall] camera.enable failed:', e)),
+      call.camera.enable()
+        .then(() => call.camera.flip())
+        .catch(e => console.warn('[IncomingCall] camera.enable/flip failed:', e)),
       call.microphone.enable().catch(e => console.warn('[IncomingCall] mic.enable failed:', e)),
     ]);
     await call.join();

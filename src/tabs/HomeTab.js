@@ -450,7 +450,9 @@ function CallHomeButton({ identity }) {
       await call.join();
       console.log('[Call] joined, callingState:', call.state.callingState);
       await Promise.all([
-        call.camera.enable().catch(err => console.warn('[Call] camera.enable failed:', err)),
+        call.camera.enable()
+          .then(() => call.camera.flip())
+          .catch(err => console.warn('[Call] camera.enable/flip failed:', err)),
         call.microphone.enable().catch(err => console.warn('[Call] mic.enable failed:', err)),
       ]);
       callRef.current = call;
