@@ -155,7 +155,13 @@ function StreamWrapper({ children }) {
           if (nextState === 'background') {
             bgAt = Date.now();
           } else if (nextState === 'active' && bgAt !== null && !cancelled) {
-            if (Date.now() - bgAt > 30000) setRetryCount(n => n + 1);
+            if (Date.now() - bgAt > 30000) {
+              setRetryCount(n => n + 1);
+            } else {
+              // Short background: WebSocket still alive but might have missed ring events.
+              c.queryCalls({ filter_conditions: { ringing: true }, limit: 5, watch: true })
+                .catch(() => {});
+            }
             bgAt = null;
           }
         });
@@ -170,6 +176,11 @@ function StreamWrapper({ children }) {
 
         if (cancelled) return;
         setReadyClient(c);
+
+        // Fetch any ringing calls we missed while the client was offline (e.g. app
+        // was killed/suspended by iOS and woken by an ntfy notification).
+        c.queryCalls({ filter_conditions: { ringing: true }, limit: 5, watch: true })
+          .catch(err => console.warn('[StreamWrapper] queryCalls failed:', err));
       } catch (err) {
         console.error('Stream init error:', err);
       }
