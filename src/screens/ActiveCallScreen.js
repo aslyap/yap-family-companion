@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, useWindowDimensions } from 'react-native';
 import {
   CallContent,
   CallControls,
@@ -18,6 +18,7 @@ export default function ActiveCallScreen({ onLeft }) {
   const remotes = useRemoteParticipants();
   const callingState = useCallCallingState();
   const hadRemoteRef = useRef(false);
+  const { width, height } = useWindowDimensions();
 
   if (remotes.length > 0) hadRemoteRef.current = true;
 
@@ -42,7 +43,7 @@ export default function ActiveCallScreen({ onLeft }) {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { width, height }]}>
       <CallContent
         onHangupCallHandler={handleHangUp}
         CallControls={ElevatedCallControls}
@@ -52,7 +53,7 @@ export default function ActiveCallScreen({ onLeft }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
+  container: { backgroundColor: '#000' },
   // 52 dp clears the standard 3-button Android nav bar (≈48 dp) with a little room.
   controls: { paddingBottom: 52 },
 });

@@ -92,6 +92,13 @@ Tap "Add Shortcut".
 ### Backend
 - [x] Groq retry fix deployed ✅
 
+### Yap Dad Companion → Yap Family merge
+- [ ] Fold Adrian's `yap-dad-companion` calling into `yap-family-companion` (one app for all family members)
+- Repo is at `C:\Users\user\Desktop\Digital Dashboard\yap-dad-companion`
+- Key difference: yap-dad-companion is a single-purpose full-screen call app; yap-family is a tab navigator with call overlay
+- Adrian's identity is already in yap-family-companion — just needs the same Android Stream calling to work reliably
+- Once calling is verified working on both devices, retire yap-dad-companion
+
 ---
 
 ## Key constants & URLs
