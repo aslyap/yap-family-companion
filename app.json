@@ -12,7 +12,9 @@
       "bundleIdentifier": "com.yapfamily.companion",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Yap Family uses the camera for video calls.",
+        "NSMicrophoneUsageDescription": "Yap Family uses the microphone for video calls."
       }
     },
     "android": {

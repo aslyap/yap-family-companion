@@ -449,6 +449,10 @@ function CallHomeButton({ identity }) {
       console.log('[Call] joining...');
       await call.join();
       console.log('[Call] joined, callingState:', call.state.callingState);
+      await Promise.all([
+        call.camera.enable().catch(err => console.warn('[Call] camera.enable failed:', err)),
+        call.microphone.enable().catch(err => console.warn('[Call] mic.enable failed:', err)),
+      ]);
       callRef.current = call;
       // Notify CallOverlay directly — useCalls() inside <StreamVideo> does not
       // track calls created externally, so we push the call via the store.
