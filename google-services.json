@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "865709801138",
-    "project_id": "yap-family-companion",
-    "storage_bucket": "yap-family-companion.firebasestorage.app"
+    "project_number": "676339470141",
+    "project_id": "yap-family-home-9a2b7",
+    "storage_bucket": "yap-family-home-9a2b7.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:865709801138:android:4d43f9fee2d95fb64913ab",
+        "mobilesdk_app_id": "1:676339470141:android:d49e6601564363d30b7f54",
         "android_client_info": {
           "package_name": "com.yapfamily.companion"
         }
@@ -15,7 +15,26 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyBYqv7FJWhy1hwe0ARZqsHUCDayQAw9qTo"
+          "current_key": "AIzaSyAacHE0uAkd9Vl-ndtBXGV1MNeV-pfNF3E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:676339470141:android:2f309778a07abef80b7f54",
+        "android_client_info": {
+          "package_name": "com.yapfamily.dadcompanion"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAacHE0uAkd9Vl-ndtBXGV1MNeV-pfNF3E"
         }
       ],
       "services": {
