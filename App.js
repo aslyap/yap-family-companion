@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, ActivityIndicator, AppState, Platform, PermissionsAndroid, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, AppState, Platform, PermissionsAndroid, StyleSheet, Linking } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { useFonts } from 'expo-font';
 import {
@@ -172,6 +172,21 @@ function StreamWrapper({ children }) {
             PermissionsAndroid.PERMISSIONS.CAMERA,
             PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
           ]);
+          // Silently request battery optimisation exclusion so Android doesn't
+          // kill the FCM handler when the app is in the background/killed state.
+          Linking.sendIntent('android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS', [
+            { key: 'android.provider.extra.PACKAGE_NAME', value: 'com.yapfamily.companion' },
+          ]).catch(() => {});
+          // Open USE_FULL_SCREEN_INTENT settings once — Android 14+ requires this
+          // to be explicitly granted so the screen wakes on an incoming call.
+          const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+          const done = await AsyncStorage.getItem('setup_full_screen_intent');
+          if (!done) {
+            await AsyncStorage.setItem('setup_full_screen_intent', '1');
+            Linking.sendIntent('android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT', [
+              { key: 'android.provider.extra.PACKAGE_NAME', value: 'com.yapfamily.companion' },
+            ]).catch(() => {});
+          }
         }
 
         if (cancelled) return;
