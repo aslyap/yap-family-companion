@@ -2,55 +2,136 @@
 
 ## Status as of 2026-07-19 (session 14)
 
-### The "regression" was not a regression — do not revert `a5059dd`/`4cfd5da`
+### The headline finding: the app had no Stream client at all
 
-Kiosk console during a cancel (hard-refreshed, F12, call Oppo, cancel):
+An on-screen debug strip (there is no other way to read state off these phones)
+showed this on a cold start, on the home screen, while the kiosk was ringing:
 
 ```
-[IncomingCall] useCalls() updated — count: 1  family-hub-adrian-...:idle
-[IncomingCall] useCalls() updated — count: 1  family-hub-adrian-...:ringing
-[IncomingCall] useCalls() updated — count: 1  family-hub-adrian-...:joining
-[IncomingCall] useCalls() updated — count: 0  (none)
+no client · me=adrian · readyClient=no
 ```
 
-**No `[call]` line at all.** Those only print on rejection, so `endCall()`
-resolved cleanly and the fallback was never taken. `count: 0` means the call
-ended server-side, not that the kiosk merely left it. The kiosk side of
-`a5059dd` works.
+**No client means no `useCalls()`, so `CallOverlay` never mounts and the incoming
+call cannot be shown by any amount of state matching.** This is the real cause of
+the cold-start failure that three sessions attributed to call *state*.
 
-**The Oppo kept ringing because the Oppo is on the old build** — the build that
-matched only `callingState === RINGING` with no `endedAt` guard. Once ringing,
-nothing the kiosk did could move it out of that state; there is no branch
-reacting to `call.ended`. The `endedAt` guard is in `90efe16`, still building.
+`getOrCreateClient()` cleared its `_connecting` promise **only on success**. A
+failed connect left the rejected promise cached, and every later caller was
+handed that same rejection — the process could never obtain a client again.
 
-So the handoff's two symptoms split:
-- *Cancel on the kiosk does nothing* — **not reproduced**, console shows it working
-- *Phone keeps ringing* — **expected on that build**, same root cause as cold-start
+The path that trips it is exactly the one that matters: FCM wakes the app,
+`index.js` calls `getOrCreateClient` as `setPushConfig`'s
+`createStreamVideoClient`, racing the radio coming back up. One failure there and
+the app was clientless for good — identically on iOS and Android, because it is
+pure JS. That platform-independence was previously read as evidence *for* the
+state hypothesis; it was really evidence for this.
 
-`a5059dd` made the kiosk side start working; it did not break it. Priority 1 and
-Priority 2 have collapsed into one test: install the APK, call the Oppo, cancel
-from the kiosk, ring should stop.
+Fixed in `615fd29`: clear `_connecting` in a `finally`, and retry `init()` with
+backoff instead of logging once and giving up.
 
-### Watch item (hypothesis, not observed)
+⚠️ **`90efe16` (the IDLE fix) was a hypothesis, was shipped, and did not work.**
+It is still in the tree and is probably harmless, but it was never the bug. The
+lesson is the one already in this file: a well-supported theory that cannot be
+observed is still a theory. One debug strip settled in a single test what four
+sessions of inference could not.
 
-Accepting `IDLE` in [App.js:90-96](App.js#L90-L96) widens the match a long way —
-`IDLE` is also an uninitialised call's state. `!c.state.endedAt` is the only
-thing keeping that safe, so the fix rests on Stream setting `endedAt` on calls
-recovered by `queryCalls()`. If it doesn't, a stale call could surface the ring
-screen on launch. The `[CallOverlay] calls:` log at [App.js:110](App.js#L110)
-prints every call and its state — after a cold start, leave the app open a
-minute and check nothing unexpected is listed.
+---
+
+### Session 14 results
+
+| # | Symptom | Status |
+|---|---|---|
+| 1 | Android played `iphone_x.mp3` over the native ring | ✅ Fixed, confirmed |
+| 2 | Kiosk control bar jumped from 1 button to 3 | ✅ Fixed, confirmed |
+| 3 | Ring stops ~5s after kiosk cancels | ✅ Not a bug — see below |
+| 4 | Decline on phone didn't end the kiosk call | ✅ Fixed, confirmed |
+| 5 | Cold start opens to home screen, no ring | 🔄 Root cause found + fixed, **unverified** |
+| 6 | Same as 4 with the app closed | ✅ Fixed, confirmed |
+| 7 | Hangup on phone doesn't end the kiosk call | ❌ **Open — next session starts here** |
+
+**Commits.** Kiosk: `d997876`. Companion: `c0a09a3`, `cc6aa1d`, `615fd29`,
+`cff24d2`. Everything through `cff24d2` is pushed; the Android build for it was
+triggered at the end of the session and its results are unknown.
+
+---
+
+### #7 — hanging up on the phone (the open item)
+
+The phone calls `call.endCall()` in `ActiveCallScreen`. If that rejects it falls
+back to `leave()`, at which point the kiosk's own 2s participant-drop fallback
+should close it. Neither happens, so something in that chain fails silently.
+
+**The live suspect is the `end-call` permission.** The kiosk (`family-hub`)
+creates every call, so `adrian`/`kath` may not be allowed to end one. Session 13
+raised this and dismissed it as a red herring — but only because `end()` was
+throwing `TypeError` before the permission could ever be exercised. With the
+method name now correct, it is untested, not disproved.
+
+`cff24d2` records the outcome of `endCall`/`leave`/`reject` into the debug strip.
+After the build, answer a call and hang up on the phone; the strip will show one
+of:
+
+- `endCall ok` → the phone ended it, the **kiosk** isn't reacting → fix is kiosk-side
+- `endCall FAILED: …` then `leave ok` → **permission theory confirmed**. Either grant
+  `end-call` to family members in the Stream Dashboard (Call Types → default →
+  Roles), or have the kiosk treat a participant drop as a hangup
+- `endCall FAILED` then `leave FAILED` → the phone cannot exit the call at all;
+  worse and different
+
+### #3 is not a bug
+
+The ~5s delay is the kiosk's deliberate 2s grace window
+(`VideoCallOverlay.jsx`, participant-drop fallback) plus Stream's propagation.
+It exists to ride out brief network blips. Can be cut to ~800ms if it reads as
+broken, but that trades against false hangups on a flaky connection.
+
+### Why #4/#6 were broken — a second SDK guard
+
+Two separate `RINGING`-gated code paths, neither obvious:
+
+1. **Kiosk side** — the SDK's own `call.rejected` handler (`watchCallRejected`,
+   video-client) returns early unless the call is still `RINGING`. `startCall()`
+   joins immediately so the kiosk can show its camera, so it is always `JOINED`
+   when a decline arrives. The SDK logged *"Call is not in ringing mode. Ignoring
+   call.rejected event"* and the kiosk sat there forever. **This path never
+   worked; it was not a regression.** Handled explicitly in `d997876`.
+2. **Phone side** — `call.leave({ reject: true })` only forwards the rejection
+   when `callingState === RINGING` (`Call.leave`). `IncomingCallScreen` also
+   shows for `IDLE` calls, and declining one of those sent **nothing at all**.
+   Now calls `call.reject()` directly, which is an unconditional POST with no
+   state guard (`c0a09a3`).
+
+Confirmed by the kiosk console: before the fix, no `call.rejected` ever arrived;
+after it, `[call] callee rejected, ending call: adrian` appears and the overlay
+closes.
+
+### ⚠️ Trap that cost a test cycle this session
+
+**A kiosk change needs a push and a Vercel deploy before it can be tested.** A
+hard refresh only re-fetches whatever Vercel is serving. Testing uncommitted
+local edits produced three "fixes don't work" reports that were really one
+undeployed commit. Push first, confirm the deploy shows the new commit, *then*
+hard refresh.
+
+### Temporary debug code to remove
+
+All gated behind `SHOW_CALL_DEBUG` in `App.js` — **do not ship a build with this
+to Kath's phone.**
+- `SHOW_CALL_DEBUG` + `CallDebugStrip` + `styles.debugStrip` in `App.js`
+- the `no client` strip in `StreamWrapper`
+- `src/debugLog.js` and its `debugLog()` calls in `ActiveCallScreen` /
+  `IncomingCallScreen`
 
 ### Incidental
 
-`[ntfy]` printed nothing during the test above: `NTFY_TOPICS` in the kiosk's
-`streamVideo.js` maps only `kath`, so calling `adrian` returns early. Correct —
-Adrian gets FCM via Stream's own ring — but it means an `adrian` call exercises
-zero ntfy code and can't be used to test that path.
+`[ntfy]` prints nothing when calling Adrian: `NTFY_TOPICS` in the kiosk's
+`streamVideo.js` maps only `kath`. Correct — Adrian gets FCM via Stream's own
+ring — but an `adrian` call exercises **zero ntfy code** and cannot be used to
+test that path.
 
 ### Priority 3 — SideStore, still open
 
-Reads "7 days", but only a couple of hours after install, so it means nothing.
+Read "7 days" on 2026-07-19, but only hours after install, so it means nothing.
 The meaningful read is **after the midnight automation fires**: 7 = refreshing,
 6 = opening SideStore without refreshing.
 
@@ -120,6 +201,9 @@ receive. Two independent places required exactly `RINGING` (CallOverlay's matche
 and IncomingCallScreen's own guard), so the push woke the phone, the app opened on
 the home screen, and the caller kept ringing. **Reproduced identically on Android
 and iOS**, which is what ruled out anything platform-specific.
+🛑 **Session 14: this was wrong.** The app had no Stream client at all, so no
+call state of any kind was reachable. The platform-independence was evidence for
+a JS-level bug, not against a platform one. See the session 14 section.
 ⚠️ This is a well-supported hypothesis, **not confirmed** — the `IDLE` state was
 never directly observed, because neither phone can produce logs (see below).
 
@@ -154,7 +238,10 @@ unrelated — the decline path (`call.leave({reject: true})`) was never touched.
 | Kiosk → Android, app open | ✅ Works |
 | Kiosk → Android, app closed | ❌ Same as iOS — opens to home screen |
 | Kiosk cancels → call ends server-side | ✅ Confirmed session 14 (console) |
-| Kiosk cancels → phone stops ringing | 🔄 Blocked on the APK — old build can't |
+| Kiosk cancels → phone stops ringing | ✅ Confirmed session 14 (~5s, by design) |
+| Phone declines → kiosk call ends | ✅ Confirmed session 14 |
+| Phone hangs up → kiosk call ends | ❌ Open — session 14 #7 |
+| Cold start → ring screen appears | 🔄 Cause found + fixed, unverified |
 | Kiosk rings itself | ✅ Fixed (`e6442c9`) |
 | ntfy delivery (screen off, app closed) | ✅ Confirmed working — verified by direct pushes |
 | SideStore auto-refresh automation fires | ✅ Confirmed (opened SideStore on schedule) |
@@ -244,13 +331,19 @@ causes of the earlier failures.
 ## Remaining items
 
 ### Calling
-- [x] ~~Diagnose the cancel/decline regression~~ — not a regression, see session 14
-- [ ] **Install the Android APK and run the one blocking test**: call the Oppo,
-      cancel from the kiosk, ring should stop. Same test covers `endCall()` and
-      the `endedAt` guard.
-- [ ] Verify the cold-start ring fix on Android, then iOS (app killed, kiosk
-      calls, phone wakes → is it answerable?)
-- [ ] Watch `[CallOverlay] calls:` after a cold start for stale `IDLE` calls
+- [x] ~~Diagnose the cancel/decline regression~~ — not a regression (session 14)
+- [x] ~~Decline on the phone ends the kiosk call~~ — fixed, confirmed (session 14)
+- [ ] **Verify the cold-start ring on the `cff24d2` Android build** — kill the
+      app, call from the kiosk, watch the strip. Ring screen should appear.
+      `attempt=N` climbing means the connect keeps failing (a second, separate
+      problem); `attempt=1` stuck means the retry isn't scheduling.
+- [ ] **#7 — hangup on the phone doesn't end the kiosk call.** Read the strip;
+      the three outcomes and what each means are in the session 14 section.
+- [ ] Then iOS: build, install via SideStore, repeat both tests. `iphone_x.mp3`
+      should ring again once the call screen actually renders — its absence on
+      iOS was a *symptom* of the no-client bug, not a separate fault.
+- [ ] Remove the debug code (list in the session 14 section) before any build
+      that goes to Kath's phone
 - [ ] Confirm SideStore refresh moved the expiry date
 - [ ] Retire Yap Dad Companion once Android is verified
       (`C:\Users\user\Desktop\Digital Dashboard\yap-dad-companion`)
