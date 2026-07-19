@@ -226,6 +226,7 @@ function StreamWrapper({ children }) {
     }
 
     let cancelled = false;
+    let retryTimer = null;
 
     async function init() {
       try {
@@ -295,7 +296,18 @@ function StreamWrapper({ children }) {
         c.queryCalls({ filter_conditions: { ringing: true }, limit: 5, watch: true })
           .catch(err => console.warn('[StreamWrapper] queryCalls failed:', err));
       } catch (err) {
-        console.error('Stream init error:', err);
+        // Retry rather than giving up. A cold start woken by a push routinely
+        // races the network coming back, and a single failure used to leave the
+        // app permanently without a client — no client, no useCalls(), no ring.
+        // Backs off 2s, 4s, 8s… capped, and keeps trying: the caller is still
+        // ringing at the other end, so there is no point stopping early.
+        console.warn(`[Stream] init failed (attempt ${retryCount + 1}), retrying:`, err);
+        if (!cancelled) {
+          const delay = Math.min(2000 * 2 ** retryCount, 15000);
+          retryTimer = setTimeout(() => {
+            if (!cancelled) setRetryCount(n => n + 1);
+          }, delay);
+        }
       }
     }
 
@@ -303,6 +315,7 @@ function StreamWrapper({ children }) {
 
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
       setReadyClient(null);
       if (clientRef.current) {
         clientRef.current.__appStateSub?.remove();
@@ -329,7 +342,7 @@ function StreamWrapper({ children }) {
         SHOW_CALL_DEBUG && (
           <View style={styles.debugStrip} pointerEvents="none">
             <Text style={styles.debugText}>
-              no client · me={identity ?? 'none'} · readyClient={readyClient ? 'yes' : 'no'}
+              no client · me={identity ?? 'none'} · readyClient={readyClient ? 'yes' : 'no'} · attempt={retryCount + 1}
             </Text>
           </View>
         )

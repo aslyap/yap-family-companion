@@ -38,10 +38,25 @@ export async function getOrCreateClient() {
     const c = new StreamVideoClient({ apiKey: STREAM_API_KEY });
     await c.connectUser(user, () => tokenProvider(user.id));
     _client = c;
-    _connecting = null;
     return c;
   })();
-  return _connecting;
+  try {
+    return await _connecting;
+  } catch (err) {
+    // Clearing _connecting here is the whole point. It used to be cleared only on
+    // the success path, so a failed connect left the rejected promise cached and
+    // every later caller was handed that same rejection — the client could never
+    // connect again for the life of the process.
+    //
+    // That is precisely what happens on a cold start: FCM wakes the app and
+    // index.js calls this as setPushConfig's createStreamVideoClient, before the
+    // radio is necessarily up. One failure there and the app was permanently
+    // clientless, so useCalls() stayed empty and the incoming call never showed.
+    console.warn('[Stream] connect failed, will retry on next call:', err);
+    throw err;
+  } finally {
+    _connecting = null;
+  }
 }
 
 export function clearClient() {
