@@ -47,9 +47,14 @@ export default function ActiveCallScreen({ onLeft }) {
     // which also ends rather than leaves. Fall back to leave() if end() is
     // rejected (only the call creator/admin may end a call).
     try {
-      await call.end();
-    } catch {
-      await call.leave().catch(() => {});
+      // endCall(), not end() — end() is not a method on Call. It threw on every
+      // hangup and fell through to leave(), which removes only this participant
+      // and left the kiosk sitting in the call: the exact symptom this was
+      // meant to fix.
+      await call.endCall();
+    } catch (err) {
+      console.warn('[call] endCall() failed, falling back to leave():', err);
+      await call.leave().catch(e => console.warn('[call] leave() also failed:', e));
     }
     onLeft();
   }
