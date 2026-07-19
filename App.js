@@ -79,11 +79,20 @@ function CallOverlay() {
       c.state.callingState === CallingState.JOINED ||
       c.state.callingState === CallingState.JOINING,
   );
-  // Incoming ring: a RINGING call that someone ELSE created.
+  // Incoming ring: a call someone ELSE created that we have not joined or left.
+  //
+  // Deliberately accepts IDLE as well as RINGING. RINGING is only set by the live
+  // `call.ring` websocket event — a call recovered by queryCalls() after the app
+  // was woken from a killed state never saw that event, so it arrives as IDLE.
+  // Matching only RINGING meant a push woke the phone, the app opened, and the
+  // caller sat ringing with the callee looking at the home screen.
+  // endedAt guards against surfacing a call that has already finished.
   const incomingRingCall = calls.find(
     c =>
-      c.state.callingState === CallingState.RINGING &&
-      c.state.createdBy?.id !== identity,
+      (c.state.callingState === CallingState.RINGING ||
+        c.state.callingState === CallingState.IDLE) &&
+      c.state.createdBy?.id !== identity &&
+      !c.state.endedAt,
   );
 
   const userDeclinedRef = useRef(false);

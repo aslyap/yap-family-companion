@@ -43,7 +43,18 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     try { player.pause(); } catch (_) {}
   }, [busy]);
 
-  if (callingState !== CallingState.RINGING) return null;
+  // Hide once the call has actually progressed — not merely because it isn't
+  // RINGING. A call recovered by queryCalls() after a cold start is IDLE (the
+  // live `call.ring` event fired while the app was killed), and blanking on
+  // anything !== RINGING left the callee staring at the home screen with the
+  // call still ringing at the other end.
+  if (
+    callingState === CallingState.JOINED ||
+    callingState === CallingState.JOINING ||
+    callingState === CallingState.LEFT
+  ) {
+    return null;
+  }
 
   async function accept() {
     if (busy) return;
