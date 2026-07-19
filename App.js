@@ -214,17 +214,25 @@ function StreamWrapper({ children }) {
           // Detached: these open settings screens and only resolve once the user comes
           // back, so awaiting here would hold up connecting to Stream. Sequential inside
           // so the second screen doesn't launch over the first.
+          // The keys are suffixed _v2 deliberately. The previous build set the
+          // unsuffixed keys immediately before calling Linking.sendIntent, which
+          // silently failed to open anything — so every device that ran it has the
+          // old keys set and would never be prompted again, even after the intent
+          // code was fixed. Bumping the key re-prompts those installs once.
+          //
+          // Anything that changes whether these prompts are still needed must bump
+          // the suffix again; there is no way to read the grant state back from JS.
           (async () => {
-            const batteryAsked = await AsyncStorage.getItem('setup_battery_opt');
+            const batteryAsked = await AsyncStorage.getItem('setup_battery_opt_v2');
             if (!batteryAsked) {
-              await AsyncStorage.setItem('setup_battery_opt', '1');
+              await AsyncStorage.setItem('setup_battery_opt_v2', '1');
               await openBatteryOptimizationSettings();
             }
             // Open USE_FULL_SCREEN_INTENT settings once — Android 14+ requires this
             // to be explicitly granted so the screen wakes on an incoming call.
-            const done = await AsyncStorage.getItem('setup_full_screen_intent');
+            const done = await AsyncStorage.getItem('setup_full_screen_intent_v2');
             if (!done) {
-              await AsyncStorage.setItem('setup_full_screen_intent', '1');
+              await AsyncStorage.setItem('setup_full_screen_intent_v2', '1');
               await openFullScreenIntentSettings();
             }
           })();
