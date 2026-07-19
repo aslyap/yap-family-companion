@@ -1,5 +1,61 @@
 # yap-family-companion — Session Handoff
 
+## Status as of 2026-07-19 (session 14)
+
+### The "regression" was not a regression — do not revert `a5059dd`/`4cfd5da`
+
+Kiosk console during a cancel (hard-refreshed, F12, call Oppo, cancel):
+
+```
+[IncomingCall] useCalls() updated — count: 1  family-hub-adrian-...:idle
+[IncomingCall] useCalls() updated — count: 1  family-hub-adrian-...:ringing
+[IncomingCall] useCalls() updated — count: 1  family-hub-adrian-...:joining
+[IncomingCall] useCalls() updated — count: 0  (none)
+```
+
+**No `[call]` line at all.** Those only print on rejection, so `endCall()`
+resolved cleanly and the fallback was never taken. `count: 0` means the call
+ended server-side, not that the kiosk merely left it. The kiosk side of
+`a5059dd` works.
+
+**The Oppo kept ringing because the Oppo is on the old build** — the build that
+matched only `callingState === RINGING` with no `endedAt` guard. Once ringing,
+nothing the kiosk did could move it out of that state; there is no branch
+reacting to `call.ended`. The `endedAt` guard is in `90efe16`, still building.
+
+So the handoff's two symptoms split:
+- *Cancel on the kiosk does nothing* — **not reproduced**, console shows it working
+- *Phone keeps ringing* — **expected on that build**, same root cause as cold-start
+
+`a5059dd` made the kiosk side start working; it did not break it. Priority 1 and
+Priority 2 have collapsed into one test: install the APK, call the Oppo, cancel
+from the kiosk, ring should stop.
+
+### Watch item (hypothesis, not observed)
+
+Accepting `IDLE` in [App.js:90-96](App.js#L90-L96) widens the match a long way —
+`IDLE` is also an uninitialised call's state. `!c.state.endedAt` is the only
+thing keeping that safe, so the fix rests on Stream setting `endedAt` on calls
+recovered by `queryCalls()`. If it doesn't, a stale call could surface the ring
+screen on launch. The `[CallOverlay] calls:` log at [App.js:110](App.js#L110)
+prints every call and its state — after a cold start, leave the app open a
+minute and check nothing unexpected is listed.
+
+### Incidental
+
+`[ntfy]` printed nothing during the test above: `NTFY_TOPICS` in the kiosk's
+`streamVideo.js` maps only `kath`, so calling `adrian` returns early. Correct —
+Adrian gets FCM via Stream's own ring — but it means an `adrian` call exercises
+zero ntfy code and can't be used to test that path.
+
+### Priority 3 — SideStore, still open
+
+Reads "7 days", but only a couple of hours after install, so it means nothing.
+The meaningful read is **after the midnight automation fires**: 7 = refreshing,
+6 = opening SideStore without refreshing.
+
+---
+
 ## Status as of 2026-07-19 (session 13)
 
 ### The headline finding: `call.end()` does not exist
@@ -97,7 +153,8 @@ unrelated — the decline path (`call.leave({reject: true})`) was never touched.
 | Kiosk → iPhone, app closed/screen off | ❌ Banner arrives, app opens to home screen, can't answer |
 | Kiosk → Android, app open | ✅ Works |
 | Kiosk → Android, app closed | ❌ Same as iOS — opens to home screen |
-| Kiosk cancels → phone stops ringing | ❌ Regressed after `a5059dd` |
+| Kiosk cancels → call ends server-side | ✅ Confirmed session 14 (console) |
+| Kiosk cancels → phone stops ringing | 🔄 Blocked on the APK — old build can't |
 | Kiosk rings itself | ✅ Fixed (`e6442c9`) |
 | ntfy delivery (screen off, app closed) | ✅ Confirmed working — verified by direct pushes |
 | SideStore auto-refresh automation fires | ✅ Confirmed (opened SideStore on schedule) |
@@ -187,9 +244,13 @@ causes of the earlier failures.
 ## Remaining items
 
 ### Calling
-- [ ] **Diagnose the cancel/decline regression** (console `[call]` lines)
-- [ ] Verify the cold-start ring fix on Android, then iOS
-- [ ] Verify `endCall()` actually stops the other side ringing
+- [x] ~~Diagnose the cancel/decline regression~~ — not a regression, see session 14
+- [ ] **Install the Android APK and run the one blocking test**: call the Oppo,
+      cancel from the kiosk, ring should stop. Same test covers `endCall()` and
+      the `endedAt` guard.
+- [ ] Verify the cold-start ring fix on Android, then iOS (app killed, kiosk
+      calls, phone wakes → is it answerable?)
+- [ ] Watch `[CallOverlay] calls:` after a cold start for stale `IDLE` calls
 - [ ] Confirm SideStore refresh moved the expiry date
 - [ ] Retire Yap Dad Companion once Android is verified
       (`C:\Users\user\Desktop\Digital Dashboard\yap-dad-companion`)

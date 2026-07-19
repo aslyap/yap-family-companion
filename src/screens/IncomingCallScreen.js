@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Vibration, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Vibration, ActivityIndicator, useWindowDimensions, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCall, useCallStateHooks, CallingState } from '@stream-io/video-react-native-sdk';
 import { useAudioPlayer } from 'expo-audio';
@@ -19,11 +19,20 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
   // and each tap fires another concurrent join, making it slower still.
   const [busy, setBusy] = useState(null); // null | 'accepting' | 'declining'
 
+  // iOS only. Android's incoming-call notification channel
+  // (`stream_incoming_call_notifications`, configured in index.js) already plays the
+  // system ring, so playing this on top gave a half-second of MP3 before the native
+  // ring cut in — and sometimes both at once. iOS has no native ring to fall back on:
+  // the free SideStore cert strips aps-environment, so there is no CallKit/PushKit
+  // ringer and this player is the only thing that makes a sound.
+  const useOwnRingtone = Platform.OS === 'ios';
+
   useEffect(() => {
     // Plain, even buzz. The ringtone MP3 carries its own cadence, so a patterned
     // vibration just drifts against it rather than reinforcing it.
     const pattern = [0, 800, 1400];
     Vibration.vibrate(pattern, true);
+    if (!useOwnRingtone) return () => Vibration.cancel();
     try {
       player.loop = true;
       player.volume = 1.0; // ring at full scale; the device volume still applies
@@ -40,6 +49,7 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
   useEffect(() => {
     if (!busy) return;
     Vibration.cancel();
+    if (!useOwnRingtone) return;
     try { player.pause(); } catch (_) {}
   }, [busy]);
 
@@ -80,7 +90,16 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     setBusy('declining');
     onDeclineStart?.();
     try {
-      await call.leave({ reject: true });
+      // reject() explicitly, rather than leave({ reject: true }).
+      //
+      // leave() only forwards the rejection when callingState is RINGING
+      // (video-client Call.leave), and this screen deliberately also shows for
+      // IDLE calls — a call recovered by queryCalls() never saw the live
+      // `call.ring` event that sets RINGING. Declining one of those left through
+      // leave() silently sent nothing, so the kiosk never learned it was declined
+      // and sat on the calling screen. reject() is an unconditional POST.
+      await call.reject();
+      await call.leave().catch(e => console.warn('[IncomingCall] leave after reject failed:', e));
       onDeclined?.();
     } catch (e) {
       console.warn('[IncomingCall] decline failed:', e);

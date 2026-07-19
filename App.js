@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, ActivityIndicator, AppState, Platform, PermissionsAndroid, StyleSheet } from 'react-native';
+import { View, Text, ActivityIndicator, AppState, Platform, PermissionsAndroid, StyleSheet } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { useFonts } from 'expo-font';
@@ -26,6 +26,9 @@ import { onOutgoingCallChange, getOutgoingCall } from './src/outgoingCallStore';
 import { COLORS } from './src/theme';
 
 const CALL_NOTIF_ID = 'yap-incoming-call';
+
+// TEMPORARY — set to false (or delete CallDebugStrip) once the cold-start ring works.
+const SHOW_CALL_DEBUG = true;
 
 const PACKAGE = 'com.yapfamily.companion';
 
@@ -154,8 +157,43 @@ function CallOverlay() {
       </View>
     );
   }
-  return null;
+  // TEMPORARY — remove once the cold-start ring is confirmed.
+  // Neither phone can produce logs (no Mac for the iPhone, adb off on the Oppo),
+  // so the [CallOverlay] console lines above are unreadable on device. This puts
+  // the same information on screen: if a push wakes the app and it lands here on
+  // the home screen instead of ringing, this strip says what state the call was
+  // actually in, which is the one fact the IDLE hypothesis needs and never had.
+  return <CallDebugStrip calls={calls} identity={identity} />;
 }
+
+// TEMPORARY — see above.
+function CallDebugStrip({ calls, identity }) {
+  if (!SHOW_CALL_DEBUG) return null;
+  return (
+    <View style={styles.debugStrip} pointerEvents="none">
+      <Text style={styles.debugText}>
+        me={identity ?? '?'} calls={calls.length}
+        {calls.length > 0 && ' · '}
+        {calls
+          .map(c => `${c.id.slice(-6)}:${c.state.callingState}:by=${c.state.createdBy?.id ?? '?'}${c.state.endedAt ? ':ended' : ''}`)
+          .join(' | ')}
+      </Text>
+    </View>
+  );
+}
+
+// TEMPORARY — styles for CallDebugStrip. Pinned to the bottom so it clears the
+// status bar and the tab bar's own labels stay readable underneath it.
+const styles = StyleSheet.create({
+  debugStrip: {
+    position: 'absolute',
+    left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  debugText: { color: '#0f0', fontSize: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+});
 
 // Initialises the Stream client and wraps children in <StreamVideo>.
 // Re-initialises whenever the identity changes (clearIdentity → new identity choice).
