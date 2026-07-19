@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, ActivityIndicator, AppState, Platform, PermissionsAndroid, StyleSheet, Linking } from 'react-native';
+import { View, ActivityIndicator, AppState, Platform, PermissionsAndroid, StyleSheet } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import * as IntentLauncher from 'expo-intent-launcher';
 import { useFonts } from 'expo-font';
 import {
   Figtree_400Regular,
@@ -25,6 +26,40 @@ import { onOutgoingCallChange, getOutgoingCall } from './src/outgoingCallStore';
 import { COLORS } from './src/theme';
 
 const CALL_NOTIF_ID = 'yap-incoming-call';
+
+const PACKAGE = 'com.yapfamily.companion';
+
+// These settings intents take a `package:` data URI — not extras. Linking.sendIntent
+// does not fire them in this Expo build, so go through expo-intent-launcher.
+
+// Opens the system dialog asking Android to exempt this app from battery optimisation,
+// so the FCM handler isn't killed while the app is backgrounded/killed.
+function openBatteryOptimizationSettings() {
+  return IntentLauncher.startActivityAsync(
+    'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+    { data: `package:${PACKAGE}` },
+  ).catch(() => {
+    // Fallback: the battery optimisation list, so the user can find the app manually.
+    IntentLauncher.startActivityAsync(
+      'android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS',
+    ).catch(() => {});
+  });
+}
+
+// Opens the Android 14+ "Use full-screen intents" page for this app — required for the
+// screen to wake on an incoming call. Pre-Android 14 the permission is auto-granted and
+// this page doesn't exist, so fall back to App Info.
+function openFullScreenIntentSettings() {
+  return IntentLauncher.startActivityAsync(
+    'android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT',
+    { data: `package:${PACKAGE}` },
+  ).catch(() => {
+    IntentLauncher.startActivityAsync(
+      'android.settings.APPLICATION_DETAILS_SETTINGS',
+      { data: `package:${PACKAGE}` },
+    ).catch(() => {});
+  });
+}
 
 // Lives inside <StreamVideo> — detects ring/active calls and overlays them above the
 // tab navigator using absoluteFillObject. Returns null when no call is active.
@@ -172,21 +207,27 @@ function StreamWrapper({ children }) {
             PermissionsAndroid.PERMISSIONS.CAMERA,
             PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
           ]);
-          // Silently request battery optimisation exclusion so Android doesn't
-          // kill the FCM handler when the app is in the background/killed state.
-          Linking.sendIntent('android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS', [
-            { key: 'android.provider.extra.PACKAGE_NAME', value: 'com.yapfamily.companion' },
-          ]).catch(() => {});
-          // Open USE_FULL_SCREEN_INTENT settings once — Android 14+ requires this
-          // to be explicitly granted so the screen wakes on an incoming call.
+          // Request battery optimisation exclusion so Android doesn't kill the FCM
+          // handler when the app is in the background/killed state. Android skips the
+          // dialog if the exemption is already granted.
           const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
-          const done = await AsyncStorage.getItem('setup_full_screen_intent');
-          if (!done) {
-            await AsyncStorage.setItem('setup_full_screen_intent', '1');
-            Linking.sendIntent('android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT', [
-              { key: 'android.provider.extra.PACKAGE_NAME', value: 'com.yapfamily.companion' },
-            ]).catch(() => {});
-          }
+          // Detached: these open settings screens and only resolve once the user comes
+          // back, so awaiting here would hold up connecting to Stream. Sequential inside
+          // so the second screen doesn't launch over the first.
+          (async () => {
+            const batteryAsked = await AsyncStorage.getItem('setup_battery_opt');
+            if (!batteryAsked) {
+              await AsyncStorage.setItem('setup_battery_opt', '1');
+              await openBatteryOptimizationSettings();
+            }
+            // Open USE_FULL_SCREEN_INTENT settings once — Android 14+ requires this
+            // to be explicitly granted so the screen wakes on an incoming call.
+            const done = await AsyncStorage.getItem('setup_full_screen_intent');
+            if (!done) {
+              await AsyncStorage.setItem('setup_full_screen_intent', '1');
+              await openFullScreenIntentSettings();
+            }
+          })();
         }
 
         if (cancelled) return;
