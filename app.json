@@ -91,7 +91,8 @@
           "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
         }
       ],
-      "expo-font"
+      "expo-font",
+      "./plugins/withLockScreenCall"
     ],
     "web": {
       "favicon": "./assets/favicon.png"
