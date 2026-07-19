@@ -187,7 +187,9 @@ function CallDebugStrip({ calls, identity }) {
 const styles = StyleSheet.create({
   debugStrip: {
     position: 'absolute',
-    left: 0, right: 0, bottom: 0,
+    // Above the tab bar and the iPhone home indicator, which would otherwise
+    // sit on top of the text.
+    left: 0, right: 0, bottom: 92,
     backgroundColor: 'rgba(0,0,0,0.75)',
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -316,10 +318,21 @@ function StreamWrapper({ children }) {
   return (
     <>
       {children}
-      {identity && readyClient && (
+      {identity && readyClient ? (
         <StreamVideo client={readyClient}>
           <CallOverlay />
         </StreamVideo>
+      ) : (
+        // TEMPORARY — CallOverlay carries the debug strip, but it only mounts once
+        // the client is connected, so a missing strip was ambiguous: old build, no
+        // identity, or a client that never connected. Render the reason instead.
+        SHOW_CALL_DEBUG && (
+          <View style={styles.debugStrip} pointerEvents="none">
+            <Text style={styles.debugText}>
+              no client · me={identity ?? 'none'} · readyClient={readyClient ? 'yes' : 'no'}
+            </Text>
+          </View>
+        )
       )}
     </>
   );
