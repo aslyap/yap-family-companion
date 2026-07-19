@@ -291,14 +291,21 @@ export default function ChatTab() {
       ingestResponse(resp, newHistory);
     } catch (e) {
       const raw = e.message || 'unknown error';
-      const isRateLimit = raw.includes('rate limit') || raw.includes('429') || raw.includes('quota');
+      const isRateLimit = raw.includes('RATE_LIMIT') || raw.includes('rate limit')
+        || raw.includes('429') || raw.includes('quota');
+
+      // The backend reports the wait Groq actually asked for as
+      // "RATE_LIMIT retry_after=<secs>"; fall back to 60s if it's absent.
+      const retryAfter = Number(raw.match(/retry_after=(\d+)/)?.[1]) || 60;
+
       const msg = isRateLimit
-        ? `Too many messages — please wait 60 seconds and try again.\n[debug: ${raw.slice(0, 120)}]`
+        ? `I'm getting a lot of requests right now — try again in ${retryAfter} seconds.`
         : `Sorry, something went wrong: ${raw}`;
+
       if (isRateLimit) {
         setOnCooldown(true);
         clearTimeout(cooldownTimer.current);
-        cooldownTimer.current = setTimeout(() => setOnCooldown(false), 60_000);
+        cooldownTimer.current = setTimeout(() => setOnCooldown(false), retryAfter * 1000);
       }
       append({ id: uid(), type: 'bot', text: msg });
       console.warn('[chat]', raw);
