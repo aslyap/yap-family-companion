@@ -42,7 +42,15 @@ export default function ActiveCallScreen({ onLeft }) {
   }, [remotes.length]);
 
   async function handleHangUp() {
-    await call.leave();
+    // end() tears the call down for everyone — leave() would only remove us and
+    // the kiosk would sit in the call on its own. Mirrors the kiosk's hangup,
+    // which also ends rather than leaves. Fall back to leave() if end() is
+    // rejected (only the call creator/admin may end a call).
+    try {
+      await call.end();
+    } catch {
+      await call.leave().catch(() => {});
+    }
     onLeft();
   }
 
