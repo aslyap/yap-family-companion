@@ -7,6 +7,7 @@ import {
   useCallStateHooks,
   CallingState,
 } from '@stream-io/video-react-native-sdk';
+import { debugLog } from '../debugLog';
 
 function ElevatedCallControls(props) {
   return <CallControls {...props} style={styles.controls} />;
@@ -52,9 +53,20 @@ export default function ActiveCallScreen({ onLeft }) {
       // and left the kiosk sitting in the call: the exact symptom this was
       // meant to fix.
       await call.endCall();
+      debugLog('endCall ok');
     } catch (err) {
+      // The kiosk creates the call, so this user may not hold the end-call
+      // permission — a theory raised in session 13 and never actually tested,
+      // because end() was throwing TypeError before it could be.
       console.warn('[call] endCall() failed, falling back to leave():', err);
-      await call.leave().catch(e => console.warn('[call] leave() also failed:', e));
+      debugLog(`endCall FAILED: ${err?.message ?? err}`);
+      await call.leave().then(
+        () => debugLog('leave ok'),
+        e => {
+          console.warn('[call] leave() also failed:', e);
+          debugLog(`leave FAILED: ${e?.message ?? e}`);
+        },
+      );
     }
     onLeft();
   }

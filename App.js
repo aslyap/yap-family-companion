@@ -23,6 +23,7 @@ import IncomingCallScreen from './src/screens/IncomingCallScreen';
 import ActiveCallScreen from './src/screens/ActiveCallScreen';
 import { getOrCreateClient, clearClient } from './src/streamClient';
 import { onOutgoingCallChange, getOutgoingCall } from './src/outgoingCallStore';
+import { getDebugLines, onDebugLog } from './src/debugLog';
 import { COLORS } from './src/theme';
 
 const CALL_NOTIF_ID = 'yap-incoming-call';
@@ -168,6 +169,8 @@ function CallOverlay() {
 
 // TEMPORARY — see above.
 function CallDebugStrip({ calls, identity }) {
+  const [logLines, setLogLines] = useState(getDebugLines);
+  useEffect(() => onDebugLog(setLogLines), []);
   if (!SHOW_CALL_DEBUG) return null;
   return (
     <View style={styles.debugStrip} pointerEvents="none">
@@ -178,6 +181,11 @@ function CallDebugStrip({ calls, identity }) {
           .map(c => `${c.id.slice(-6)}:${c.state.callingState}:by=${c.state.createdBy?.id ?? '?'}${c.state.endedAt ? ':ended' : ''}`)
           .join(' | ')}
       </Text>
+      {/* Survives the call ending, so a hangup failure is still readable after
+          the call screen has gone. */}
+      {logLines.map(line => (
+        <Text key={line} style={styles.debugText}>{line}</Text>
+      ))}
     </View>
   );
 }

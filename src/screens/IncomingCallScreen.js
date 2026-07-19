@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Vibration, ActivityIndicator,
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCall, useCallStateHooks, CallingState } from '@stream-io/video-react-native-sdk';
 import { useAudioPlayer } from 'expo-audio';
+import { debugLog } from '../debugLog';
 
 // Full-screen incoming call UI shown when the kiosk "Call Mum/Dad" button rings this device.
 export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineStart }) {
@@ -99,10 +100,15 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       // leave() silently sent nothing, so the kiosk never learned it was declined
       // and sat on the calling screen. reject() is an unconditional POST.
       await call.reject();
-      await call.leave().catch(e => console.warn('[IncomingCall] leave after reject failed:', e));
+      debugLog('reject ok');
+      await call.leave().catch(e => {
+        console.warn('[IncomingCall] leave after reject failed:', e);
+        debugLog(`leave-after-reject FAILED: ${e?.message ?? e}`);
+      });
       onDeclined?.();
     } catch (e) {
       console.warn('[IncomingCall] decline failed:', e);
+      debugLog(`reject FAILED: ${e?.message ?? e}`);
       setBusy(null);
     }
   }
