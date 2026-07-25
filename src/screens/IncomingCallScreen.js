@@ -48,8 +48,17 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     // instead of paying that iOS-only cost *inside* join() — which is what made
     // Accept take ~6-9s (the strip showed a single slow `joining → joined ok`, not
     // a retry). With no ringtone playing there is no downside to record mode early.
+    //
+    // The outcome goes to the strip: if the warm-up throws, an Accept that is
+    // still slow means "the fix never ran", not "the fix didn't help" — and
+    // without this line those two readings look identical.
     if (isIOS) {
-      setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true }).catch(() => {});
+      setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
+        .then(() => debugLog('audio warm ok'))
+        .catch(e => {
+          console.warn('[IncomingCall] audio warm failed:', e);
+          debugLog(`audio warm FAILED: ${e?.message ?? e}`);
+        });
     }
 
     return () => Vibration.cancel();

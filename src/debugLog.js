@@ -14,7 +14,13 @@ let lines = [];
 let listeners = new Set();
 
 export function debugLog(msg) {
-  const stamp = new Date().toLocaleTimeString('en-GB', { hour12: false }).slice(3);
+  // mm:ss.mmm — the Accept measurement is the difference between two lines, and
+  // whole seconds can't tell a 2.9s join from a 2.0s one.
+  const now = new Date();
+  const stamp =
+    `${String(now.getMinutes()).padStart(2, '0')}:` +
+    `${String(now.getSeconds()).padStart(2, '0')}.` +
+    `${String(now.getMilliseconds()).padStart(3, '0')}`;
   lines = [...lines, `${stamp} ${msg}`].slice(-MAX);
   listeners.forEach(fn => fn(lines));
 }
