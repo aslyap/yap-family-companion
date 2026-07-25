@@ -1,6 +1,88 @@
 # yap-family-companion — Session Handoff
 
-## Session 16 kickoff prompt
+## Session 17 kickoff prompt
+
+**Measure the iOS Accept delay on the new build, verify Android return-home, then
+sign off calling and strip the debug code.**
+
+Read this file and the memory index first. Session 16 got calling working
+end-to-end on both phones and replaced ntfy with **Bark** on iOS. A few fixes were
+pushed right at the end and need a fresh build to verify.
+
+### Session 16 outcomes (2026-07-25)
+
+**Android — confirmed working**
+- Cold-start now RINGS from a killed app. Root cause was NOT the client/connect
+  (the three earlier "cold-start" commits chased the wrong layer): non-Expo Android
+  requires the app to register the FCM message handlers itself and forward
+  `call.ring` to `firebaseDataHandler` — that was missing. Fixed `6302ae2`.
+- Accept works; decline ends the kiosk call (the earlier failure was the
+  stale-bundle trap). Kiosk "call.join() shall be called only once" error
+  suppressed (kiosk `579b0ac`).
+- Return-to-Android-home: works when the app was open; on cold-start the HOME
+  intent couldn't background an activity pinned by the lockscreen flags. Switched
+  to `BackHandler.exitApp()` (`f9a5233`) — **needs an Android build to verify** it
+  now backgrounds on cold-start too.
+
+**iOS — mostly working; Bark is the big change**
+- Replaced ntfy with **Bark** — see [[project_bark_ios_ring]]. Loud, continuous,
+  FaceTime-style ring (`multiwayinvitation`) that bypasses silent mode (Critical
+  Alerts), correct "Yap Family calling" title, ONE persistent notification. Best
+  achievable without a paid Apple account.
+- Cold-open (tap ring → app opens to the call): recovers the exact ringing call
+  from the deep-link cid via `onRingingCall` (`025b05d` + kiosk `288f24e`).
+  Confirmed.
+- Accept connects (the iOS audio session was blocking `join()`); decline works.
+
+### Priority 1 — measure the iOS Accept delay (the last real bug)
+Accept takes ~6-9s to connect on iOS (Android is ~3s). The strip confirmed a
+SINGLE slow join (`accept: joining` → `joined ok`, no retry); the iOS-only cost is
+the audio session/unit initialising inside `join()`. `39a6db8` removes the in-app
+ringtone (Kath already heard Bark) and warms the audio session when the ring screen
+mounts, moving that cost off the Accept tap.
+
+**On the new build: do one Accept and read the strip.** `joining → joined ok`
+shrank to ~2-3s = fixed. Still ~6s = the delay is WebRTC/SFU connection time, near
+the floor for a sideloaded build — say so and stop chasing it.
+
+### Priority 2 — verify Android return-home (needs an Android build)
+Build `build-android.yml`; cold-start a call, accept, end it → the phone should
+drop to the Android home screen, not sit on the app's Home tab. `f9a5233`.
+
+### Priority 3 — confirm the kiosk actually uses Bark on a real call
+`VITE_BARK_KEY_KATH` = `hMct2EYAMAtfzKUs7vfFbY` must be set in Vercel (Production)
+AND redeployed (Vite bakes env at build time). A real "Call Mum" with the kiosk
+console open should log `[bark] push accepted`, not `[ntfy]`.
+
+### Then — sign off and CLEAN UP the debug code
+Once Priorities 1-2 are confirmed, remove everything behind `SHOW_CALL_DEBUG` in
+`App.js` (`CallDebugStrip`, `styles.debugStrip`, the no-client strip, the
+`deeplink:`/`onRingingCall` logging), `src/debugLog.js` and its calls, and the now-
+unused `assets/iphone_x.mp3` and `assets/ringtone.wav`. Then retire Yap Dad
+Companion (`..\yap-dad-companion`).
+
+### Settled — do NOT re-litigate
+- **Unlock-to-answer on iOS is impossible without a paid Apple account** ($99/yr).
+  Confirmed by two independent analyses: no CallKit without APNs/PushKit, which the
+  free SideStore cert can't have. Bark gets the loud ring; the unlock+tap stays.
+- **Call ends → app stays open on iOS** is normal: iOS forbids apps backgrounding
+  themselves. Only Android returns home.
+
+### Traps (unchanged, still bite)
+- Evidence before theories — the strip settled the cold-start and the 9s in one
+  reading each; sessions of inference did not.
+- Never `.catch(() => {})` — bugs hide behind swallowed errors.
+- A kiosk change needs a push AND a Vercel deploy before a hard refresh can test
+  it; **env-var changes need a REDEPLOY** (Vite bakes them at build time). The
+  stale-bundle trap bit the decline fix this session.
+- Neither phone produces logs — the debug strip and kiosk console are the only
+  diagnostic surfaces.
+- Calling Adrian exercises zero ntfy/Bark code (kiosk maps only kath). PowerShell
+  5.1 mangles emoji. Don't test chat (burns the family's daily budget).
+
+---
+
+## Session 16 kickoff prompt (completed — see outcomes above)
 
 **Verify Android cold-start, then fix iPhone calling.**
 
