@@ -9,7 +9,10 @@
 // render them. It is a diagnostic surface, not error handling — the console.warn
 // calls stay where they are.
 
-const MAX = 6;
+// The Accept sequence now logs the audio warm-up, each callingState transition and
+// the join outcome; 6 lines pushed the start of the sequence off the top before it
+// could be read.
+const MAX = 10;
 let lines = [];
 let listeners = new Set();
 

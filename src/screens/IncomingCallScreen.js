@@ -53,8 +53,9 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     // still slow means "the fix never ran", not "the fix didn't help" — and
     // without this line those two readings look identical.
     if (isIOS) {
+      const t0 = Date.now();
       setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
-        .then(() => debugLog('audio warm ok'))
+        .then(() => debugLog(`audio warm ok in ${Date.now() - t0}ms`))
         .catch(e => {
           console.warn('[IncomingCall] audio warm failed:', e);
           debugLog(`audio warm FAILED: ${e?.message ?? e}`);
@@ -85,6 +86,7 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
   async function accept() {
     if (busy) return;
     setBusy('accepting');
+    const t0 = Date.now();
     try {
       // The audio session was put into record mode when the ring screen mounted
       // (see the effect above), so join() can connect straight away without the
@@ -96,8 +98,32 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       // time-boxed so a genuinely hung join surfaces as a failure on the strip
       // instead of an infinite spinner.
       debugLog('accept: joining');
-      await withTimeout(call.join(), 30000, 'join');
-      debugLog('accept: joined ok');
+      // Where does the time actually go? Timing only around join() cannot tell a
+      // join that hung with nothing happening from one that reached the SFU and
+      // negotiated slowly — and a 30s timeout was read as "slow audio session"
+      // on that evidence alone. The SDK moves callingState to JOINING immediately
+      // and to JOINED on SFU connect, so these transitions bracket the cost.
+      //
+      // Subscribed here rather than in a React effect: CallOverlay swaps to
+      // ActiveCallScreen as soon as the state is JOINING, which unmounts this
+      // screen mid-join, so an effect would stop reporting exactly when the
+      // interesting part starts.
+      const since = () => `+${Date.now() - t0}ms`;
+      let sub;
+      try {
+        sub = call.state.callingState$.subscribe(s => debugLog(`state ${s} ${since()}`));
+      } catch (e) {
+        // Not fatal — the join still runs, we just lose the breakdown. Say so,
+        // rather than leaving a silent gap that looks like "no transitions".
+        console.warn('[IncomingCall] state subscribe failed:', e);
+        debugLog(`state sub FAILED: ${e?.message ?? e}`);
+      }
+      try {
+        await withTimeout(call.join(), 30000, 'join');
+      } finally {
+        sub?.unsubscribe?.();
+      }
+      debugLog(`accept: joined ok in ${Date.now() - t0}ms`);
       onAccepted();
       // Fire-and-forget; a camera/mic failure must not strand a connected call.
       call.camera.enable()
@@ -112,7 +138,7 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       });
     } catch (e) {
       console.warn('[IncomingCall] accept failed:', e);
-      debugLog(`join FAILED: ${e?.message ?? e}`);
+      debugLog(`join FAILED after ${Date.now() - t0}ms: ${e?.message ?? e}`);
       setBusy(null); // let them try again rather than stranding them on a dead screen
     }
   }
