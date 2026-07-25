@@ -1,5 +1,11 @@
 import { registerRootComponent } from 'expo';
-import { StreamVideoRN } from '@stream-io/video-react-native-sdk';
+import { Platform } from 'react-native';
+import messaging from '@react-native-firebase/messaging';
+import {
+  StreamVideoRN,
+  firebaseDataHandler,
+  isFirebaseStreamVideoMessage,
+} from '@stream-io/video-react-native-sdk';
 
 import App from './App';
 import { getOrCreateClient } from './src/streamClient';
@@ -29,5 +35,38 @@ StreamVideoRN.setPushConfig({
   },
   createStreamVideoClient: getOrCreateClient,
 });
+
+// Android FCM ring handlers — REQUIRED, and previously missing.
+//
+// setPushConfig alone is not enough on non-Expo Android: it registers the client
+// factory and the notification channel, but nothing forwards the incoming FCM
+// `call.ring` message to the SDK. The app must do that itself by calling
+// firebaseDataHandler, which runs client.onRingingCall(call_cid) and thereby puts
+// the call into useCalls() so CallOverlay can show the ring screen.
+//
+// Without these handlers, a call that arrives while the app is killed/backgrounded
+// was never turned into a call the JS layer knew about: the client connected but
+// useCalls() stayed empty, and the app woke onto its Home screen instead of ringing
+// (the Oppo strip read exactly this — `me=adrian calls=0` on a cold start). The
+// app-open case worked only because the live WebSocket delivers call.ring directly.
+//
+// Android-only: iOS has no data-message background path here (no APNs/VoIP on the
+// free SideStore cert), so there is nothing for these handlers to do there.
+if (Platform.OS === 'android') {
+  // Background/terminated: this headless handler is the only JS that runs when a
+  // data FCM message arrives with the app not in the foreground.
+  messaging().setBackgroundMessageHandler(async message => {
+    if (isFirebaseStreamVideoMessage(message)) {
+      await firebaseDataHandler(message.data);
+    }
+  });
+  // Foreground: the WebSocket usually delivers call.ring first, but forward the
+  // push too so a ring is never dropped if the socket is mid-reconnect.
+  messaging().onMessage(message => {
+    if (isFirebaseStreamVideoMessage(message)) {
+      firebaseDataHandler(message.data);
+    }
+  });
+}
 
 registerRootComponent(App);
