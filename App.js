@@ -228,6 +228,31 @@ const styles = StyleSheet.create({
   debugText: { color: '#0f0', fontSize: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
 });
 
+// Recovers the exact ringing call named by a yapfamily:// deep link (the Bark tap on
+// iOS). Simply connecting the client does not surface a call that is already
+// ringing — the strip read `me=kath calls=0` after a cold open, and queryCalls
+// returned nothing — but onRingingCall(cid) registers that exact call so it lands in
+// useCalls() and CallOverlay shows the ring screen.
+//
+// Module-level rather than defined inside init(): the deep link has to be *noticed*
+// before a client exists (that is the whole delay being covered), so the listener and
+// the recovery cannot live in the same scope.
+async function recoverCallFromUrl(client, url) {
+  const match = url?.match(/[?&]cid=([^&]+)/);
+  if (!match) { debugLog(`deeplink: no cid (${url?.slice(0, 24)})`); return; }
+  const cid = decodeURIComponent(match[1]);
+  try {
+    await client.onRingingCall(cid);
+    debugLog(`onRingingCall ok: ${cid.slice(-10)}`);
+  } catch (err) {
+    console.warn('[StreamWrapper] onRingingCall from deep link failed:', err);
+    debugLog(`onRingingCall FAILED: ${err?.message ?? err}`);
+    // The call will never appear, so drop the placeholder now rather than leaving a
+    // "Connecting…" screen up for the rest of the TTL.
+    clearCallPending();
+  }
+}
+
 // Initialises the Stream client and wraps children in <StreamVideo>.
 // Re-initialises whenever the identity changes (clearIdentity → new identity choice).
 function StreamWrapper({ children }) {
@@ -236,17 +261,41 @@ function StreamWrapper({ children }) {
   const clientRef = useRef(null);
   const [retryCount, setRetryCount] = useState(0);
   const callPending = useCallPending();
+  // A deep link that arrived before there was a client to hand it to.
+  const pendingUrlRef = useRef(null);
 
   // iOS's "a call is coming" signal is the Bark deep link, and this must NOT wait
   // for the client: the deep link is read again inside init() below, but only after
   // connectUser() has finished — which is the very delay the placeholder exists to
   // cover. Reading it here, on mount, means the call screen is up almost as soon as
   // the app is.
+  // Registered on MOUNT, and watching both the cold launch (getInitialURL) and the
+  // warm one (the 'url' event). This listener used to live inside init(), i.e. it only
+  // started listening once the client was connected — so a Bark tap on a phone that
+  // had been idle was noticed only after the slowest part was already over. The whole
+  // point is to know a call is coming *before* that.
   useEffect(() => {
+    const note = url => {
+      if (!url || !/[?&]cid=/.test(url)) return;
+      pendingUrlRef.current = url;
+      markCallPending();
+    };
     Linking.getInitialURL()
-      .then(url => { if (url && /[?&]cid=/.test(url)) markCallPending(); })
-      .catch(err => console.warn('[StreamWrapper] getInitialURL (pending) failed:', err));
+      .then(note)
+      .catch(err => console.warn('[StreamWrapper] getInitialURL failed:', err));
+    const sub = Linking.addEventListener('url', ({ url }) => note(url));
+    return () => sub.remove();
   }, []);
+
+  // Recover the call as soon as there is a client to recover it with — which may be
+  // well after the link arrived, and may be a *replacement* client after a resume
+  // reconnect.
+  useEffect(() => {
+    if (!readyClient || !pendingUrlRef.current) return;
+    const url = pendingUrlRef.current;
+    pendingUrlRef.current = null;
+    recoverCallFromUrl(readyClient, url);
+  }, [readyClient]);
 
   // Ask for notification permission on iOS so background ring alerts can appear.
   useEffect(() => {
@@ -260,7 +309,6 @@ function StreamWrapper({ children }) {
       // Identity cleared — disconnect and tear down.
       if (clientRef.current) {
         clientRef.current.__appStateSub?.remove();
-        clientRef.current.__urlSub?.remove();
         clientRef.current.disconnectUser().catch(() => {});
         clientRef.current = null;
         clearClient();
@@ -285,6 +333,11 @@ function StreamWrapper({ children }) {
             bgAt = Date.now();
           } else if (nextState === 'active' && bgAt !== null && !cancelled) {
             if (Date.now() - bgAt > 30000) {
+              // This full teardown + reconnect is the remaining cost of unlocking a
+              // phone that has been idle, and it is unmeasured. If the placeholder
+              // still sits on "Connecting…" for a long time, the gap between this
+              // line and `onRingingCall ok` is the number to look at.
+              debugLog(`resume: reconnecting after ${Math.round((Date.now() - bgAt) / 1000)}s bg`);
               setRetryCount(n => n + 1);
             } else {
               // Short background: WebSocket still alive but might have missed ring events.
@@ -356,36 +409,8 @@ function StreamWrapper({ children }) {
         if (cancelled) return;
         setReadyClient(c);
 
-        // iOS cold-open recovery via the ntfy deep link.
-        //
-        // On iOS there is no FCM path to deliver an incoming call, and simply
-        // connecting the client does not surface a call that is already ringing —
-        // the strip read `me=kath calls=0` after a cold open, and queryCalls below
-        // returned nothing. The ntfy banner's deep link carries the ringing call's
-        // cid; onRingingCall(cid) registers that exact call so it lands in
-        // useCalls() and CallOverlay shows the ring screen. Deterministic, unlike
-        // the ringing filter.
-        const recoverCallFromUrl = async url => {
-          if (!url) { debugLog('deeplink: none'); return; }
-          const match = url.match(/[?&]cid=([^&]+)/);
-          if (!match) { debugLog(`deeplink: no cid (${url.slice(0, 24)})`); return; }
-          const cid = decodeURIComponent(match[1]);
-          markCallPending();
-          try {
-            await c.onRingingCall(cid);
-            debugLog(`onRingingCall ok: ${cid.slice(-10)}`);
-          } catch (err) {
-            console.warn('[StreamWrapper] onRingingCall from deep link failed:', err);
-            debugLog(`onRingingCall FAILED: ${err?.message ?? err}`);
-            // The call will never appear, so drop the placeholder now rather than
-            // leaving a "Connecting…" screen up for the rest of the TTL.
-            clearCallPending();
-          }
-        };
-        Linking.getInitialURL().then(recoverCallFromUrl).catch(err =>
-          console.warn('[StreamWrapper] getInitialURL failed:', err),
-        );
-        c.__urlSub = Linking.addEventListener('url', ({ url }) => recoverCallFromUrl(url));
+        // Deep-link recovery is handled by the mount-level listener above, which is
+        // watching from before this client existed.
 
         // Fetch any ringing calls we missed while the client was offline (e.g. app
         // was killed/suspended by iOS and woken by an ntfy notification).
@@ -415,7 +440,6 @@ function StreamWrapper({ children }) {
       setReadyClient(null);
       if (clientRef.current) {
         clientRef.current.__appStateSub?.remove();
-        clientRef.current.__urlSub?.remove();
         clientRef.current.disconnectUser().catch(() => {});
         clientRef.current = null;
         clearClient();
