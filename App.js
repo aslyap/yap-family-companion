@@ -23,7 +23,7 @@ import IncomingCallScreen from './src/screens/IncomingCallScreen';
 import ActiveCallScreen from './src/screens/ActiveCallScreen';
 import { getOrCreateClient, clearClient } from './src/streamClient';
 import { onOutgoingCallChange, getOutgoingCall } from './src/outgoingCallStore';
-import { getDebugLines, onDebugLog } from './src/debugLog';
+import { getDebugLines, onDebugLog, debugLog } from './src/debugLog';
 import { returnToAndroidHome } from './src/returnHome';
 import { COLORS } from './src/theme';
 
@@ -345,14 +345,16 @@ function StreamWrapper({ children }) {
         // useCalls() and CallOverlay shows the ring screen. Deterministic, unlike
         // the ringing filter.
         const recoverCallFromUrl = async url => {
-          if (!url) return;
+          if (!url) { debugLog('deeplink: none'); return; }
           const match = url.match(/[?&]cid=([^&]+)/);
-          if (!match) return;
+          if (!match) { debugLog(`deeplink: no cid (${url.slice(0, 24)})`); return; }
           const cid = decodeURIComponent(match[1]);
           try {
             await c.onRingingCall(cid);
+            debugLog(`onRingingCall ok: ${cid.slice(-10)}`);
           } catch (err) {
             console.warn('[StreamWrapper] onRingingCall from deep link failed:', err);
+            debugLog(`onRingingCall FAILED: ${err?.message ?? err}`);
           }
         };
         Linking.getInitialURL().then(recoverCallFromUrl).catch(err =>
