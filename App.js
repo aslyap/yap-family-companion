@@ -24,6 +24,7 @@ import ActiveCallScreen from './src/screens/ActiveCallScreen';
 import { getOrCreateClient, clearClient } from './src/streamClient';
 import { onOutgoingCallChange, getOutgoingCall } from './src/outgoingCallStore';
 import { getDebugLines, onDebugLog } from './src/debugLog';
+import { returnToAndroidHome } from './src/returnHome';
 import { COLORS } from './src/theme';
 
 const CALL_NOTIF_ID = 'yap-incoming-call';
@@ -114,6 +115,19 @@ function CallOverlay() {
     console.log('[CallOverlay] calls:', calls.map(c => `${c.id.slice(-8)}:${c.state.callingState}:createdBy=${c.state.createdBy?.id}`).join(', ') || '(none)');
     console.log('[CallOverlay] active:', active?.id?.slice(-8) ?? 'null', '| outgoingRinging:', outgoingRinging?.id?.slice(-8) ?? 'null', '| outgoingCallStore:', outgoingCall?.id?.slice(-8) ?? 'null', '| incomingRing:', incomingRingCall?.id?.slice(-8) ?? 'null');
   }, [calls, outgoingCall]);
+
+  // When a call screen was showing and then goes away, the call has ended
+  // (declined, hung up, cancelled by the kiosk, or the remote dropped). Background
+  // the app so the phone returns to the normal Android home screen rather than
+  // sitting on the app's own Home tab. One place catches every end path.
+  const showingCall = !!(active || outgoingRinging || outgoingCall || incomingRingCall);
+  const wasShowingCallRef = useRef(false);
+  useEffect(() => {
+    if (wasShowingCallRef.current && !showingCall) {
+      returnToAndroidHome();
+    }
+    wasShowingCallRef.current = showingCall;
+  }, [showingCall]);
 
   useEffect(() => {
     if (!incomingRingCall) {
