@@ -71,17 +71,34 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     if (busy) return;
     setBusy('accepting');
     try {
-      // Enable tracks before joining so CallContent has video ready when it mounts.
-      await Promise.all([
-        call.camera.enable()
-          .then(() => call.camera.flip())
-          .catch(e => console.warn('[IncomingCall] camera.enable/flip failed:', e)),
-        call.microphone.enable().catch(e => console.warn('[IncomingCall] mic.enable failed:', e)),
-      ]);
+      // Join FIRST, enable media after.
+      //
+      // The previous order — enable camera+mic, THEN join, all awaited through a
+      // Promise.all — hung forever on iOS: if call.camera.enable() *hangs* (as
+      // opposed to rejecting), the Promise.all never settles, call.join() is never
+      // reached, and Accept spins with no error to surface (session 16 symptom).
+      // The .catch() only rescues a rejection, not a hang. Connecting the call is
+      // the actual job of Accept; the camera is secondary, so do it where a stall
+      // can't block the connection. CallContent turns tracks on reactively once
+      // they're enabled, so enabling after join still shows video.
+      debugLog('accept: joining');
       await call.join();
+      debugLog('accept: joined ok');
       onAccepted();
+      // Fire-and-forget; a camera/mic failure must not strand a connected call.
+      call.camera.enable()
+        .then(() => call.camera.flip())
+        .catch(e => {
+          console.warn('[IncomingCall] camera.enable/flip failed:', e);
+          debugLog(`camera FAILED: ${e?.message ?? e}`);
+        });
+      call.microphone.enable().catch(e => {
+        console.warn('[IncomingCall] mic.enable failed:', e);
+        debugLog(`mic FAILED: ${e?.message ?? e}`);
+      });
     } catch (e) {
       console.warn('[IncomingCall] accept failed:', e);
+      debugLog(`join FAILED: ${e?.message ?? e}`);
       setBusy(null); // let them try again rather than stranding them on a dead screen
     }
   }
