@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Vibration, ActivityIndicator, useWindowDimensions, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCall, useCallStateHooks, CallingState } from '@stream-io/video-react-native-sdk';
-import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import { setAudioModeAsync } from 'expo-audio';
 import { debugLog } from '../debugLog';
 
 // A hung call.join() must not leave Accept spinning forever with no error (the
@@ -26,49 +26,38 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
 
-  const player = useAudioPlayer(require('../../assets/iphone_x.mp3'));
-
-  // Accepting takes a few seconds (enable camera + mic, then join). Without a
-  // pending state the screen looks frozen, so the button gets tapped repeatedly
-  // and each tap fires another concurrent join, making it slower still.
+  // Accepting takes a few seconds (join the WebRTC call). Without a pending state
+  // the screen looks frozen, so the button gets tapped repeatedly and each tap
+  // fires another concurrent join, making it slower still.
   const [busy, setBusy] = useState(null); // null | 'accepting' | 'declining'
 
-  // iOS only. Android's incoming-call notification channel
-  // (`stream_incoming_call_notifications`, configured in index.js) already plays the
-  // system ring, so playing this on top gave a half-second of MP3 before the native
-  // ring cut in — and sometimes both at once. iOS has no native ring to fall back on:
-  // the free SideStore cert strips aps-environment, so there is no CallKit/PushKit
-  // ringer and this player is the only thing that makes a sound.
-  const useOwnRingtone = Platform.OS === 'ios';
+  const isIOS = Platform.OS === 'ios';
 
   useEffect(() => {
-    // Plain, even buzz. The ringtone MP3 carries its own cadence, so a patterned
-    // vibration just drifts against it rather than reinforcing it.
+    // Vibrate only — no in-app ringtone. On iOS Kath has already been alerted by
+    // the Bark notification (a loud, continuous ring) and tapped it to answer; a
+    // second, different ring here just feels disconnected. Android still plays its
+    // native incoming-call ring via the notification channel (index.js) — this
+    // screen only adds a buzz. (assets/iphone_x.mp3 is now unused.)
     const pattern = [0, 800, 1400];
     Vibration.vibrate(pattern, true);
-    if (!useOwnRingtone) return () => Vibration.cancel();
-    try {
-      // Reset the session to loud playback before ringing. A previous call ends
-      // with allowsRecording:true (routed to the earpiece); without this the next
-      // ringtone would play quietly through the earpiece instead of the speaker.
-      setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
-      player.loop = true;
-      player.volume = 1.0; // ring at full scale; the device volume still applies
-      player.play();
-    } catch (_) {}
-    return () => {
-      Vibration.cancel();
-      try { player.pause(); } catch (_) {}
-    };
+
+    // iOS: warm the audio session for the impending call while the ring screen is
+    // up. Putting it into record mode (allowsRecording) now means call.join() on
+    // Accept finds the session already record-ready and the audio unit warming,
+    // instead of paying that iOS-only cost *inside* join() — which is what made
+    // Accept take ~6-9s (the strip showed a single slow `joining → joined ok`, not
+    // a retry). With no ringtone playing there is no downside to record mode early.
+    if (isIOS) {
+      setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true }).catch(() => {});
+    }
+
+    return () => Vibration.cancel();
   }, []);
 
-  // Silence the ring the instant a choice is made — it otherwise keeps ringing
-  // through the whole join, which reads as "nothing happened".
+  // Stop the buzz the instant a choice is made.
   useEffect(() => {
-    if (!busy) return;
-    Vibration.cancel();
-    if (!useOwnRingtone) return;
-    try { player.pause(); } catch (_) {}
+    if (busy) Vibration.cancel();
   }, [busy]);
 
   // Hide once the call has actually progressed — not merely because it isn't
@@ -88,42 +77,15 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     if (busy) return;
     setBusy('accepting');
     try {
-      // iOS: hand the audio session to WebRTC before joining.
+      // The audio session was put into record mode when the ring screen mounted
+      // (see the effect above), so join() can connect straight away without the
+      // mid-accept session switch that used to cost several seconds on iOS.
       //
-      // The ringtone plays through expo-audio, which activates the iOS audio
-      // session. Its allowsRecording defaults to false (per the expo-audio docs),
-      // leaving the session playback-only — and call.join() then hangs forever
-      // trying to acquire the microphone for the call. That is the "tap Accept →
-      // spinner that never resolves" seen on the iPhone. Stop the ringtone and
-      // flip the session to allow recording so join() can set up the mic. Android
-      // never plays this ringtone (useOwnRingtone is iOS-only) and has no conflict.
-      if (useOwnRingtone) {
-        try { player.pause(); player.remove(); } catch (_) {}
-        try {
-          await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-        } catch (e) {
-          console.warn('[IncomingCall] setAudioModeAsync failed:', e);
-          debugLog(`audioMode FAILED: ${e?.message ?? e}`);
-        }
-      }
-
-      // Join FIRST, enable media after.
-      //
-      // The previous order — enable camera+mic, THEN join, all awaited through a
-      // Promise.all — hung forever on iOS: if call.camera.enable() *hangs* (as
-      // opposed to rejecting), the Promise.all never settles, call.join() is never
-      // reached, and Accept spins with no error to surface (session 16 symptom).
-      // The .catch() only rescues a rejection, not a hang. Connecting the call is
-      // the actual job of Accept; the camera is secondary, so do it where a stall
-      // can't block the connection. CallContent turns tracks on reactively once
-      // they're enabled, so enabling after join still shows video.
-      //
-      // join() is time-boxed so a genuinely hung join can't spin Accept forever.
-      // 30s, not 15s: the iPhone strip showed join() legitimately taking ~10-15s
-      // to establish the WebRTC connection (slower on the first attempt, before
-      // the connection is warm). A 15s box tripped on that first, healthy attempt
-      // and reset the button, forcing a second tap. 30s lets the first tap connect
-      // while still catching a true hang.
+      // Join FIRST, enable media after: enabling camera+mic before join once hung
+      // the whole accept on iOS (a hanging camera.enable() never let join run). The
+      // camera is secondary — enable it once the call is connected. join() is
+      // time-boxed so a genuinely hung join surfaces as a failure on the strip
+      // instead of an infinite spinner.
       debugLog('accept: joining');
       await withTimeout(call.join(), 30000, 'join');
       debugLog('accept: joined ok');
