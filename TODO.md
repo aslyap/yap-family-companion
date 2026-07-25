@@ -2,36 +2,32 @@
 
 ## Session 18 kickoff prompt
 
-**Verify the iOS Accept fix and Android return-home on the `cb76047` build, then
-sign off calling and strip the debug code.**
+**Verify Android return-home, then sign off calling and strip the debug code.**
 
-Read this file and the memory index first. Session 17 root-caused the iOS Accept
-delay — it was never the audio session or WebRTC. Two builds are outstanding.
+Read this file and the memory index first. **iOS calling is DONE** — the Accept fix
+(`cb76047`) was verified fast on device at the end of session 17. One test remains,
+on Android, and then the whole calling feature closes out.
 
-### Priority 1 — verify the iOS Accept fix (`cb76047`)
+### Priority 1 — verify Android return-home (`f9a5233`, never built)
 
-Build `build-ios.yml` at `cb76047` or later, install from inside SideStore, do one
-Accept and read the strip:
+Build `build-android.yml` at `cb76047` or later. Cold-start a call (kill the app
+first), accept, end it → the phone should drop to the **Android home screen**, not
+sit on the app's Home tab. This is the only unverified calling behaviour left.
 
-- `state joining` within a few hundred ms, `state joined` shortly after, total
-  ~1-2s, **no 5s plateau** = fixed. Sign it off.
-- a ~5s gap before `state joining` survives = callingx is still being set up
-  somewhere; find where `CallingxModule.isSetup` becomes true. Do not re-theorise
-  about the audio session.
-- **Also check audio works both ways.** The iOS audio session is now configured by
-  `StreamInCallManager` instead of (nominally) CallKit — a different component than
-  any previous build, so this is a genuinely new path.
+`f9a5233` switched from launching the HOME intent to `BackHandler.exitApp()`,
+because a cold start launches MainActivity with the lockscreen flags
+(`showWhenLocked`/`turnScreenOn` from `plugins/withLockScreenCall.js`) and HOME
+could not background an activity pinned by those. Android is unaffected by the
+session-17 iOS fix — `setPushConfig` still runs there.
 
-### Priority 2 — verify Android return-home (`f9a5233`, still unverified)
-
-Build `build-android.yml`. Cold-start a call, accept, end it → the phone should
-drop to the Android home screen, not sit on the app's Home tab. Android is
-unaffected by the session-17 fix (`setPushConfig` still runs there), so this test
-is exactly as it was planned in session 17.
+If it still doesn't background: the strip is still in place, and the thing to
+establish first is whether `returnToAndroidHome()` is even reached (it fires from
+the `showingCall` → false effect in `CallOverlay`) before touching how it
+backgrounds. Add a `debugLog` there rather than theorising.
 
 ### Then — sign off and CLEAN UP the debug code
 
-Once Priorities 1-2 are confirmed:
+Once Priority 1 is confirmed (or if you decide to accept the current behaviour):
 - `App.js` — everything behind `SHOW_CALL_DEBUG`: `CallDebugStrip`,
   `styles.debugStrip`, the no-client strip in `StreamWrapper`, the `deeplink:` /
   `onRingingCall` logging
@@ -75,7 +71,10 @@ Once Priorities 1-2 are confirmed:
 
 ### Session 17 outcomes (2026-07-25)
 
-**iOS Accept delay — root-caused and fixed (`cb76047`). The last real calling bug.**
+**iOS Accept delay — root-caused, fixed (`cb76047`) and VERIFIED ON DEVICE.**
+Accept is fast, the 5s plateau is gone, and iOS calling is now signed off end to
+end: Bark ring → tap → app opens to the call → accept connects promptly → decline
+and hangup both end the kiosk call. Nothing iOS-side is outstanding.
 
 The strip measured it: a successful accept sat in `ringing` for **5012ms**, then
 reached JOINING and connected to the SFU in **946ms**. 5012 is
@@ -583,12 +582,12 @@ causes of the earlier failures.
 - [x] ~~Hangup on the phone ends the kiosk call (#7)~~ — fixed, confirmed (session 15)
 - [x] ~~Android cold-start ring~~ — fixed `6302ae2`, confirmed (session 16)
 - [x] ~~iOS ring / cold-open~~ — Bark + deep-link cid recovery, confirmed (session 16)
-- [x] ~~iOS Accept delay~~ — root-caused and fixed `cb76047` (session 17),
-      **awaiting verification on an iOS build**
+- [x] ~~iOS Accept delay~~ — fixed `cb76047`, **verified on device** (session 17).
+      iOS calling is complete.
 - [x] ~~Kiosk uses Bark, not ntfy~~ — confirmed from the deployed bundle (session 17)
-- [ ] **Verify iOS Accept on the `cb76047` build** — Priority 1 above
-- [ ] **Verify Android return-home on a cold-started call** (`f9a5233`) — Priority 2
-- [ ] Remove the debug code once both verify (list in the session 18 kickoff)
+- [ ] **Verify Android return-home on a cold-started call** (`f9a5233`) — the only
+      unverified calling behaviour left
+- [ ] Remove the debug code once that verifies (list in the session 18 kickoff)
 - [ ] Confirm SideStore refresh moved the expiry date (must be Kath's real phone)
 - [ ] Retire Yap Dad Companion once Android is verified
       (`C:\Users\user\Desktop\Digital Dashboard\yap-dad-companion`)
