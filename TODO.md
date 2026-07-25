@@ -1,5 +1,103 @@
 # yap-family-companion — Session Handoff
 
+## Session 16 kickoff prompt
+
+**Verify Android cold-start, then fix iPhone calling.**
+
+Read this file and the memory index first. Session 15 fixed several things but
+left two items unverified, and iPhone calling has never been tested end-to-end.
+
+### Session 15 outcomes (2026-07-25)
+
+| # | Item | Status |
+|---|---|---|
+| 7 | Hangup on phone doesn't end kiosk call | ✅ Fixed & confirmed — strip read `endCall ok` |
+| — | Android black screen on incoming call | ✅ Root-caused (not a code bug) + prompt improved |
+| 5 | Cold-start no-client / no ring | 🔧 Fix pushed (`13b5fc1`), **UNVERIFIED** |
+| — | SideStore auto-refresh never firing | ✅ Fixed — automation now runs "Refresh All Apps" |
+
+- **#7 hangup → fixed.** The phone `endCall()`s cleanly and the kiosk reacts. The
+  end-call permission theory was wrong.
+- **Android black screen** wasn't code. Android 14+ (targetSdk 35) makes
+  `USE_FULL_SCREEN_INTENT` a manual "special app access" only the user can grant;
+  without it the incoming-call full-screen intent is demoted to a heads-up banner,
+  MainActivity never launches, and `turnScreenOn` never fires → the call rings but
+  the screen stays black. Granting it on the Oppo fixed it live. Commit `a999a0e`
+  improves the first-run prompt (explains exactly which toggle to flip, re-fires
+  once via key bump `_v2`→`_v3`). **No app can auto-grant this — Android platform
+  restriction, don't re-litigate.**
+- **Cold-start no-client → fix pushed, needs a build to verify.** The strip caught
+  it live on a cold start: `readyClient=no · attempt=1`, frozen. `connectUser()`
+  was *hanging* (radio not up when FCM wakes the app), and the retry only fires on
+  a *rejection*, so it never recovered. Commit `13b5fc1` adds a 20s connect timeout
+  + 12s token-fetch abort → hang becomes rejection → retry works. Backend probed
+  warm (74ms), so it's the phone radio, not a Fly cold-boot.
+- **SideStore auto-refresh → fixed.** The midnight automation ran "Open App" (only
+  foregrounds SideStore, never refreshes). It now runs SideStore's **"Refresh All
+  Apps"** Shortcuts action, which brings up LocalDevVPN itself — no manual VPN
+  wrapper needed. Manual run confirmed "all apps have been refreshed", no error.
+
+### Priority 1 — verify the Android cold-start fix (`13b5fc1`)
+
+Needs a fresh `build-android.yml` build installed on the Oppo. Kill the app,
+screen off, call from the kiosk, watch the strip:
+- `attempt=2, 3…` climbing → then ring screen appears = **FIXED**
+- climbs forever, never rings = radio genuinely not coming up on wake (harder)
+- stuck at `attempt=1` = the hang is outside the 20s timeout's reach
+
+Read the strip before touching code.
+
+### Priority 2 — fix iPhone calling (the last big gap)
+
+Never worked end-to-end. iOS constraints are settled: no APNs/VoIP (free SideStore
+cert strips `aps-environment`), so **ntfy is the only background path** — a banner,
+tapped to open the app; no native call screen. The entire iOS ring depends on
+`IncomingCallScreen` rendering, because `iphone_x.mp3` (expo-audio) is the *only*
+sound on iOS — there is no native ring to fall back on. So iOS was silent for the
+same reason Android hit the home screen: no client → no `useCalls()` → no ring
+screen. The session-15 connect-timeout fix is pure JS and should help iOS too, but
+iOS is woken by an **ntfy tap**, not FCM.
+
+Build `build-ios.yml`, install **from inside SideStore** (not iloader), and test
+the full flow **calling KATH** (Adrian exercises zero ntfy code — `NTFY_TOPICS`
+maps only kath):
+1. Kiosk "Call Mum" → ntfy banner arrives (screen off/locked is fine — delivery is proven)
+2. Tap banner → app opens → **ring screen renders + `iphone_x.mp3` plays**
+3. Answer → connects. Decline → kiosk call ends. Hang up → kiosk call ends.
+
+The debug strip works on iOS too — read it if the ring screen doesn't appear.
+
+### Priority 3 — SideStore locked-refresh reading
+
+Morning after 2026-07-25: did the "ran" notification fire around midnight, and is
+the expiry still **7 days** (refreshed while locked → fully hands-off) or **6**
+(only works unlocked → retime the automation to an hour Kath's phone is unlocked)?
+Then turn **"Notify When Run" OFF**. Must be redone on Kath's real phone.
+
+### Cleanup before any build reaches Kath's phone
+
+Do **not** ship the debug strip. Remove everything behind `SHOW_CALL_DEBUG` in
+`App.js` (`CallDebugStrip`, `styles.debugStrip`, the `no client` strip in
+`StreamWrapper`), plus `src/debugLog.js` and its calls in `ActiveCallScreen` /
+`IncomingCallScreen`. Also unused `assets/ringtone.wav` (replaced by
+`iphone_x.mp3`). Keep the strip until BOTH Android cold-start and iPhone calling
+are confirmed — it is the only diagnostic surface on these phones.
+
+Then: retire Yap Dad Companion (`..\yap-dad-companion`) once Android is verified.
+
+### Traps (unchanged, still bite)
+
+- Get the evidence before theorising — one debug strip settled in a single test
+  what four sessions of inference could not.
+- Never `.catch(() => {})` here — three bugs hid behind swallowed errors.
+- A kiosk change needs a push AND a Vercel deploy before a hard refresh can test it.
+- Neither phone can produce logs (no Mac for the iPhone, adb off on the Oppo) —
+  the debug strip and kiosk console are the only diagnostic surfaces.
+- Calling Adrian exercises ZERO ntfy code. PowerShell 5.1 mangles emoji in ntfy
+  payloads. Don't test chat (burns the family's real daily budget).
+
+---
+
 ## Status as of 2026-07-19 (session 14)
 
 ### The headline finding: the app had no Stream client at all
