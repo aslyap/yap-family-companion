@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, ActivityIndicator, AppState, Platform, PermissionsAndroid, StyleSheet } from 'react-native';
+import { View, Text, ActivityIndicator, AppState, Platform, PermissionsAndroid, StyleSheet, Alert } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { useFonts } from 'expo-font';
@@ -286,11 +286,32 @@ function StreamWrapper({ children }) {
               await AsyncStorage.setItem('setup_battery_opt_v2', '1');
               await openBatteryOptimizationSettings();
             }
-            // Open USE_FULL_SCREEN_INTENT settings once — Android 14+ requires this
-            // to be explicitly granted so the screen wakes on an incoming call.
-            const done = await AsyncStorage.getItem('setup_full_screen_intent_v2');
+            // Android 14+ (targetSdk 34+) makes USE_FULL_SCREEN_INTENT a special app
+            // access the user must toggle by hand — there is no API to grant it, and
+            // no way to read its state back from JS. Without it, Android demotes the
+            // incoming-call full-screen intent to a heads-up banner, MainActivity
+            // never launches, and turnScreenOn never fires: the call rings but the
+            // screen stays black (confirmed on the Oppo, session 15).
+            //
+            // The most we can do is guide the user to the page. Just launching it
+            // dropped them on a settings screen with no idea what to flip, so gate it
+            // behind an Alert that says exactly which toggle to turn on, and only open
+            // the page once they acknowledge. Key bumped to _v3 so installs that
+            // already burned _v2 (before this explanatory step existed) get one more
+            // prompt.
+            const done = await AsyncStorage.getItem('setup_full_screen_intent_v3');
             if (!done) {
-              await AsyncStorage.setItem('setup_full_screen_intent_v2', '1');
+              await AsyncStorage.setItem('setup_full_screen_intent_v3', '1');
+              await new Promise(resolve => {
+                Alert.alert(
+                  'Let calls wake your phone',
+                  'On the next screen, turn ON "Allow full-screen notifications" ' +
+                    '(sometimes called "Full-screen intents") for Yap Family.\n\n' +
+                    'Without it, calls ring but the screen stays black.',
+                  [{ text: 'Open settings', onPress: resolve }],
+                  { cancelable: false },
+                );
+              });
               await openFullScreenIntentSettings();
             }
           })();
