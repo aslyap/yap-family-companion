@@ -118,11 +118,14 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       // can't block the connection. CallContent turns tracks on reactively once
       // they're enabled, so enabling after join still shows video.
       //
-      // join() is time-boxed: a hung join used to spin Accept forever with no
-      // error. Now it fails, resets the button, and logs to the strip so the next
-      // test shows the real cause instead of an eternal spinner.
+      // join() is time-boxed so a genuinely hung join can't spin Accept forever.
+      // 30s, not 15s: the iPhone strip showed join() legitimately taking ~10-15s
+      // to establish the WebRTC connection (slower on the first attempt, before
+      // the connection is warm). A 15s box tripped on that first, healthy attempt
+      // and reset the button, forcing a second tap. 30s lets the first tap connect
+      // while still catching a true hang.
       debugLog('accept: joining');
-      await withTimeout(call.join(), 15000, 'join');
+      await withTimeout(call.join(), 30000, 'join');
       debugLog('accept: joined ok');
       onAccepted();
       // Fire-and-forget; a camera/mic failure must not strand a connected call.
