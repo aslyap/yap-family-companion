@@ -450,9 +450,12 @@ function CallHomeButton({ identity }) {
       await call.join();
       console.log('[Call] joined, callingState:', call.state.callingState);
       await Promise.all([
+        // selectDirection('front'), not flip() — see IncomingCallScreen's accept():
+        // flip() is a toggle and points the camera at the floor on any device that
+        // already starts front-facing.
         call.camera.enable()
-          .then(() => call.camera.flip())
-          .catch(err => console.warn('[Call] camera.enable/flip failed:', err)),
+          .then(() => call.camera.selectDirection('front'))
+          .catch(err => console.warn('[Call] camera.enable/selectDirection failed:', err)),
         call.microphone.enable().catch(err => console.warn('[Call] mic.enable failed:', err)),
       ]);
       callRef.current = call;

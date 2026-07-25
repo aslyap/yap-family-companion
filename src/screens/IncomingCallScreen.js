@@ -108,10 +108,17 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       debugLog(`accept: joined ok in ${Date.now() - t0}ms`);
       onAccepted();
       // Fire-and-forget; a camera/mic failure must not strand a connected call.
+      //
+      // selectDirection('front'), NOT flip(). flip() is a toggle — it was added in
+      // 5c7caff to get the front camera when the call opened on the back one, so it
+      // only produces the front camera from a known-back starting point. On the
+      // iPhone the call already opens front-facing, so the flip turned it AWAY from
+      // Kath and pointed it at the floor. selectDirection is absolute: front is front
+      // whatever the call started on, on either platform.
       call.camera.enable()
-        .then(() => call.camera.flip())
+        .then(() => call.camera.selectDirection('front'))
         .catch(e => {
-          console.warn('[IncomingCall] camera.enable/flip failed:', e);
+          console.warn('[IncomingCall] camera.enable/selectDirection failed:', e);
           debugLog(`camera FAILED: ${e?.message ?? e}`);
         });
       call.microphone.enable().catch(e => {
