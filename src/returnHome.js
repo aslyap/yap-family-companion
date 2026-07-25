@@ -1,4 +1,5 @@
 import { Platform, BackHandler } from 'react-native';
+import { debugLog } from './debugLog';
 
 // Send the app to the background / Android home screen when a call ends.
 //
@@ -22,10 +23,16 @@ import { Platform, BackHandler } from 'react-native';
 // iOS is intentionally a no-op: apps may not background themselves on iOS, and it
 // doesn't matter there — the call screen simply dismisses back to wherever we were.
 export function returnToAndroidHome() {
+  // TEMPORARY (strip with SHOW_CALL_DEBUG): exitApp() only backgrounds the app, it
+  // does not kill the process, so these lines survive and are readable by reopening
+  // the app. That distinguishes "never reached" from "reached but didn't background".
+  debugLog(`returnHome: called (${Platform.OS})`);
   if (Platform.OS !== 'android') return;
   try {
     BackHandler.exitApp();
+    debugLog('returnHome: exitApp returned');
   } catch (err) {
+    debugLog(`returnHome: exitApp FAILED: ${err?.message ?? err}`);
     console.warn('[returnHome] exitApp failed:', err);
   }
 }
