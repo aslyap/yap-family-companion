@@ -9,7 +9,7 @@
 // render them. It is a diagnostic surface, not error handling — the console.warn
 // calls stay where they are.
 
-const MAX = 3;
+const MAX = 6;
 let lines = [];
 let listeners = new Set();
 
