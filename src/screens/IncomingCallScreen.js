@@ -116,12 +116,12 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       // `call.ring` event that sets RINGING. Declining one of those left through
       // leave() silently sent nothing, so the kiosk never learned it was declined
       // and sat on the calling screen. reject() is an unconditional POST.
+      // reject() already removes us from the call — do NOT also call leave().
+      // The strip proved leave() after reject() throws "Cannot leave call that has
+      // already been left", which was harmless but produced an alarming FAILED line
+      // and did nothing useful. reject() is the single, complete decline action.
       await call.reject();
       debugLog('reject ok');
-      await call.leave().catch(e => {
-        console.warn('[IncomingCall] leave after reject failed:', e);
-        debugLog(`leave-after-reject FAILED: ${e?.message ?? e}`);
-      });
       onDeclined?.();
     } catch (e) {
       console.warn('[IncomingCall] decline failed:', e);
