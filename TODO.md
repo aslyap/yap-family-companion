@@ -1,13 +1,125 @@
 # yap-family-companion — Session Handoff
 
-## Session 17 kickoff prompt
+## Session 18 kickoff prompt
 
-**Measure the iOS Accept delay on the new build, verify Android return-home, then
+**Verify the iOS Accept fix and Android return-home on the `cb76047` build, then
 sign off calling and strip the debug code.**
 
-Read this file and the memory index first. Session 16 got calling working
-end-to-end on both phones and replaced ntfy with **Bark** on iOS. A few fixes were
-pushed right at the end and need a fresh build to verify.
+Read this file and the memory index first. Session 17 root-caused the iOS Accept
+delay — it was never the audio session or WebRTC. Two builds are outstanding.
+
+### Priority 1 — verify the iOS Accept fix (`cb76047`)
+
+Build `build-ios.yml` at `cb76047` or later, install from inside SideStore, do one
+Accept and read the strip:
+
+- `state joining` within a few hundred ms, `state joined` shortly after, total
+  ~1-2s, **no 5s plateau** = fixed. Sign it off.
+- a ~5s gap before `state joining` survives = callingx is still being set up
+  somewhere; find where `CallingxModule.isSetup` becomes true. Do not re-theorise
+  about the audio session.
+- **Also check audio works both ways.** The iOS audio session is now configured by
+  `StreamInCallManager` instead of (nominally) CallKit — a different component than
+  any previous build, so this is a genuinely new path.
+
+### Priority 2 — verify Android return-home (`f9a5233`, still unverified)
+
+Build `build-android.yml`. Cold-start a call, accept, end it → the phone should
+drop to the Android home screen, not sit on the app's Home tab. Android is
+unaffected by the session-17 fix (`setPushConfig` still runs there), so this test
+is exactly as it was planned in session 17.
+
+### Then — sign off and CLEAN UP the debug code
+
+Once Priorities 1-2 are confirmed:
+- `App.js` — everything behind `SHOW_CALL_DEBUG`: `CallDebugStrip`,
+  `styles.debugStrip`, the no-client strip in `StreamWrapper`, the `deeplink:` /
+  `onRingingCall` logging
+- `src/debugLog.js` and every `debugLog()` call in `IncomingCallScreen` /
+  `ActiveCallScreen`. **Keep `withTimeout` around `join()`** — it is what surfaced
+  the 30s hang, and it is error handling, not instrumentation.
+- unused `assets/iphone_x.mp3` and `assets/ringtone.wav`
+- kiosk: the now-unreachable ntfy path in `src/services/streamVideo.js` (the
+  dispatcher prefers Bark for `kath`, and `kath` is the only mapped user) and the
+  `[IncomingCall]` console.logs in `IncomingCallOverlay.jsx` (keep `[call]`/`[bark]`)
+- retire Yap Dad Companion (`..\yap-dad-companion`)
+
+### Settled — do NOT re-litigate
+
+- **Unlock-to-answer on iOS is impossible without a paid Apple account** ($99/yr):
+  no CallKit without APNs/PushKit, which the free SideStore cert can't have
+  (confirmed by two independent analyses). Bark gets the loud ring; the unlock+tap
+  stays. Session 17 found the app was nonetheless *asking* for CallKit on every
+  accept — that is fixed, and it does not change this constraint.
+- **Call ends → app stays open on iOS** is normal: iOS forbids apps backgrounding
+  themselves. Only Android returns home.
+- **WebRTC/SFU connect time is not a problem** — measured at 946ms. Don't reach for
+  "it's near the floor for a sideloaded build" again.
+
+### Traps (these keep biting)
+
+- **Evidence before theories.** Every theory formed without the strip in this
+  project has been wrong — three now on the iOS Accept alone. When an SDK call is
+  slow, instrument *inside* it (state observables) before explaining it.
+- **Never `.catch(() => {})`.** Bugs hide behind swallowed errors; a swallowed one
+  in the warm-up would have made "the fix didn't help" and "the fix never ran"
+  indistinguishable.
+- **Read the build's commit before trusting a reading.** The first session-17 strip
+  photo predated the instrumentation, so it couldn't answer the question asked.
+- A kiosk change needs a push AND a Vercel deploy before a hard refresh can test
+  it; **env-var changes need a REDEPLOY** (Vite bakes them at build time).
+- Neither phone produces logs — the debug strip and kiosk console are the only
+  diagnostic surfaces.
+- Calling Adrian exercises zero Bark/ntfy code (kiosk maps only kath). PowerShell
+  5.1 mangles emoji. Don't test chat (burns the family's daily budget).
+
+### Session 17 outcomes (2026-07-25)
+
+**iOS Accept delay — root-caused and fixed (`cb76047`). The last real calling bug.**
+
+The strip measured it: a successful accept sat in `ringing` for **5012ms**, then
+reached JOINING and connected to the SFU in **946ms**. 5012 is
+`AUDIO_SESSION_TIMEOUT_MS = 5000` to the millisecond.
+
+`StreamVideoRN.setPushConfig` calls `callingx.setup()` **unconditionally**, so
+`CallingxModule.isSetup` was true on iOS, which routes `call.join()` through the
+CallKit path *before* the join flow starts: `displayIncomingCall()` (no timeout) →
+`answerIncomingCall()` (no timeout) → `waitForAudioSessionActivation()` (5000ms
+timeout). That last resolves early only on CallKit's `didActivateAudioSession`,
+which **cannot fire on the free SideStore cert** (no `aps-environment` ⇒ no
+PushKit/CallKit). The known iOS constraint had a consequence nobody had traced:
+the app still *asked* for CallKit on every accept and paid 5s — or hung on one of
+the untimed steps, which is the 30s first-attempt failure the strip caught.
+
+Fix: call `setPushConfig` **on Android only**. iOS loses nothing (no APNs path, so
+the config was Android-only in substance; iOS rings via Bark and opens by deep link
+into `client.onRingingCall`). This also fixed a second bug behind the same flag:
+`shouldBypassForCallKit()` skips `StreamInCallManager` on iOS whenever `isSetup` is
+true, so the app claimed CallKit owned the audio session while CallKit could not
+run and **nothing** configured it.
+
+⚠️ **Two earlier explanations were wrong.** Recorded so they are not re-proposed:
+(1) expo-audio's `allowsRecording:false` leaving a playback-only session
+(`14882a7`); (2) "iOS join legitimately takes 10-15s" — it takes ~1s, and the 30s
+timeout raised on that false premise (`8d48f84`) is what let a real hang pass as a
+healthy slow join for a session. The warm-up added for theory (1) (`39a6db8`) is
+removed. **WebRTC/SFU time was never the problem — it is under a second.**
+
+**How it was found** (`4abf77f`, `5012a8b`) — worth reusing: log
+`call.state.callingState$` transitions with elapsed offsets, subscribed *directly*,
+not from a React effect (CallOverlay unmounts the ring screen at JOINING, exactly
+when the interesting part begins). Timing only *around* an SDK call cannot tell a
+pre-join hang from slow negotiation, and that ambiguity sustained both wrong
+theories. Also: the warm-up had ended in `.catch(() => {})`, which would have made
+"the fix didn't help" and "the fix never ran" look identical on the strip.
+
+**Priority 3 (Bark) — CONFIRMED, no call needed.** The deployed production bundle
+contains Kath's Bark key, so the Vercel env var *and* the redeploy both took. The
+dispatcher is `if (barkKey[user]) → bark; else if (ntfyTopic[user]) → ntfy`, so
+`kath` takes Bark and ntfy is unreachable. Only an api.day.app rejection could
+still surprise us, and that would show as `[bark] push rejected` in the console.
+
+**Android return-home — still unverified.** No Android build was made this session.
 
 ### Session 16 outcomes (2026-07-25)
 
@@ -32,53 +144,8 @@ pushed right at the end and need a fresh build to verify.
 - Cold-open (tap ring → app opens to the call): recovers the exact ringing call
   from the deep-link cid via `onRingingCall` (`025b05d` + kiosk `288f24e`).
   Confirmed.
-- Accept connects (the iOS audio session was blocking `join()`); decline works.
-
-### Priority 1 — measure the iOS Accept delay (the last real bug)
-Accept takes ~6-9s to connect on iOS (Android is ~3s). The strip confirmed a
-SINGLE slow join (`accept: joining` → `joined ok`, no retry); the iOS-only cost is
-the audio session/unit initialising inside `join()`. `39a6db8` removes the in-app
-ringtone (Kath already heard Bark) and warms the audio session when the ring screen
-mounts, moving that cost off the Accept tap.
-
-**On the new build: do one Accept and read the strip.** `joining → joined ok`
-shrank to ~2-3s = fixed. Still ~6s = the delay is WebRTC/SFU connection time, near
-the floor for a sideloaded build — say so and stop chasing it.
-
-### Priority 2 — verify Android return-home (needs an Android build)
-Build `build-android.yml`; cold-start a call, accept, end it → the phone should
-drop to the Android home screen, not sit on the app's Home tab. `f9a5233`.
-
-### Priority 3 — confirm the kiosk actually uses Bark on a real call
-`VITE_BARK_KEY_KATH` = `hMct2EYAMAtfzKUs7vfFbY` must be set in Vercel (Production)
-AND redeployed (Vite bakes env at build time). A real "Call Mum" with the kiosk
-console open should log `[bark] push accepted`, not `[ntfy]`.
-
-### Then — sign off and CLEAN UP the debug code
-Once Priorities 1-2 are confirmed, remove everything behind `SHOW_CALL_DEBUG` in
-`App.js` (`CallDebugStrip`, `styles.debugStrip`, the no-client strip, the
-`deeplink:`/`onRingingCall` logging), `src/debugLog.js` and its calls, and the now-
-unused `assets/iphone_x.mp3` and `assets/ringtone.wav`. Then retire Yap Dad
-Companion (`..\yap-dad-companion`).
-
-### Settled — do NOT re-litigate
-- **Unlock-to-answer on iOS is impossible without a paid Apple account** ($99/yr).
-  Confirmed by two independent analyses: no CallKit without APNs/PushKit, which the
-  free SideStore cert can't have. Bark gets the loud ring; the unlock+tap stays.
-- **Call ends → app stays open on iOS** is normal: iOS forbids apps backgrounding
-  themselves. Only Android returns home.
-
-### Traps (unchanged, still bite)
-- Evidence before theories — the strip settled the cold-start and the 9s in one
-  reading each; sessions of inference did not.
-- Never `.catch(() => {})` — bugs hide behind swallowed errors.
-- A kiosk change needs a push AND a Vercel deploy before a hard refresh can test
-  it; **env-var changes need a REDEPLOY** (Vite bakes them at build time). The
-  stale-bundle trap bit the decline fix this session.
-- Neither phone produces logs — the debug strip and kiosk console are the only
-  diagnostic surfaces.
-- Calling Adrian exercises zero ntfy/Bark code (kiosk maps only kath). PowerShell
-  5.1 mangles emoji. Don't test chat (burns the family's daily budget).
+- Accept connects, decline works. (Session 16 attributed the Accept *delay* to the
+  iOS audio session — wrong; see the session 17 outcomes above.)
 
 ---
 
@@ -511,27 +578,29 @@ causes of the earlier failures.
 ## Remaining items
 
 ### Calling
-- [x] ~~Diagnose the cancel/decline regression~~ — not a regression (session 14)
+- [x] ~~Cancel/decline regression~~ — not a regression (session 14)
 - [x] ~~Decline on the phone ends the kiosk call~~ — fixed, confirmed (session 14)
-- [ ] **Verify the cold-start ring on the `cff24d2` Android build** — kill the
-      app, call from the kiosk, watch the strip. Ring screen should appear.
-      `attempt=N` climbing means the connect keeps failing (a second, separate
-      problem); `attempt=1` stuck means the retry isn't scheduling.
-- [ ] **#7 — hangup on the phone doesn't end the kiosk call.** Read the strip;
-      the three outcomes and what each means are in the session 14 section.
-- [ ] Then iOS: build, install via SideStore, repeat both tests. `iphone_x.mp3`
-      should ring again once the call screen actually renders — its absence on
-      iOS was a *symptom* of the no-client bug, not a separate fault.
-- [ ] Remove the debug code (list in the session 14 section) before any build
-      that goes to Kath's phone
-- [ ] Confirm SideStore refresh moved the expiry date
+- [x] ~~Hangup on the phone ends the kiosk call (#7)~~ — fixed, confirmed (session 15)
+- [x] ~~Android cold-start ring~~ — fixed `6302ae2`, confirmed (session 16)
+- [x] ~~iOS ring / cold-open~~ — Bark + deep-link cid recovery, confirmed (session 16)
+- [x] ~~iOS Accept delay~~ — root-caused and fixed `cb76047` (session 17),
+      **awaiting verification on an iOS build**
+- [x] ~~Kiosk uses Bark, not ntfy~~ — confirmed from the deployed bundle (session 17)
+- [ ] **Verify iOS Accept on the `cb76047` build** — Priority 1 above
+- [ ] **Verify Android return-home on a cold-started call** (`f9a5233`) — Priority 2
+- [ ] Remove the debug code once both verify (list in the session 18 kickoff)
+- [ ] Confirm SideStore refresh moved the expiry date (must be Kath's real phone)
 - [ ] Retire Yap Dad Companion once Android is verified
       (`C:\Users\user\Desktop\Digital Dashboard\yap-dad-companion`)
 
 ### Cleanup
 - [ ] Remove `[IncomingCall]` debug console.logs from kiosk `IncomingCallOverlay.jsx`
-      (keep the `[call]` and `[ntfy]` ones — they earned their place)
-- [ ] `assets/ringtone.wav` in the companion is now unused (`iphone_x.mp3` replaced it)
+      (keep the `[call]` and `[bark]` ones — they earned their place)
+- [ ] Companion `assets/iphone_x.mp3` and `assets/ringtone.wav` are both unused —
+      the in-app ringtone was dropped in `39a6db8` (Bark rings on iOS, the
+      notification channel on Android)
+- [ ] Kiosk: the ntfy path in `src/services/streamVideo.js` is now unreachable —
+      the dispatcher prefers Bark for `kath`, the only mapped user
 - [ ] Kiosk `useRealtimeTable` replaced by `useLiveQuery` — no callers remain
 
 ### Backlog
