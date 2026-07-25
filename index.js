@@ -9,6 +9,7 @@ import {
 
 import App from './App';
 import { getOrCreateClient } from './src/streamClient';
+import { markCallPending } from './src/pendingCall';
 
 // ANDROID ONLY — deliberately not called on iOS. This is what made iOS Accept slow.
 //
@@ -88,6 +89,11 @@ if (Platform.OS === 'android') {
   // data FCM message arrives with the app not in the foreground.
   messaging().setBackgroundMessageHandler(async message => {
     if (isFirebaseStreamVideoMessage(message)) {
+      // Flag the call BEFORE awaiting the handler, not after. This is the earliest
+      // moment anything in JS knows a call is coming, and the whole point of the
+      // flag is to cover the seconds that follow (token fetch, connectUser,
+      // onRingingCall) during which App.js would otherwise show its Home tab.
+      markCallPending();
       await firebaseDataHandler(message.data);
     }
   });
@@ -95,6 +101,7 @@ if (Platform.OS === 'android') {
   // push too so a ring is never dropped if the socket is mid-reconnect.
   messaging().onMessage(message => {
     if (isFirebaseStreamVideoMessage(message)) {
+      markCallPending();
       firebaseDataHandler(message.data);
     }
   });

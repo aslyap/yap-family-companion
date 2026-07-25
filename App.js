@@ -20,10 +20,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { IdentityProvider, useIdentity } from './src/contexts/IdentityContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import IncomingCallScreen from './src/screens/IncomingCallScreen';
+import IncomingCallPlaceholder from './src/screens/IncomingCallPlaceholder';
 import ActiveCallScreen from './src/screens/ActiveCallScreen';
 import { getOrCreateClient, clearClient } from './src/streamClient';
 import { onOutgoingCallChange, getOutgoingCall } from './src/outgoingCallStore';
 import { getDebugLines, onDebugLog, debugLog } from './src/debugLog';
+import { markCallPending, clearCallPending, useCallPending } from './src/pendingCall';
 import { returnToAndroidHome } from './src/returnHome';
 import { COLORS } from './src/theme';
 
@@ -129,6 +131,13 @@ function CallOverlay() {
     wasShowingCallRef.current = showingCall;
   }, [showingCall]);
 
+  // A real call screen is up, so the "call is coming" placeholder has done its job.
+  // Also covers the end of the call: without this, the flag would still be inside
+  // its TTL and the placeholder would flash back up as the call screen unmounts.
+  useEffect(() => {
+    if (showingCall) clearCallPending();
+  }, [showingCall]);
+
   useEffect(() => {
     if (!incomingRingCall) {
       Notifications.dismissNotificationAsync(CALL_NOTIF_ID).catch(() => {});
@@ -226,6 +235,18 @@ function StreamWrapper({ children }) {
   const [readyClient, setReadyClient] = useState(null);
   const clientRef = useRef(null);
   const [retryCount, setRetryCount] = useState(0);
+  const callPending = useCallPending();
+
+  // iOS's "a call is coming" signal is the Bark deep link, and this must NOT wait
+  // for the client: the deep link is read again inside init() below, but only after
+  // connectUser() has finished — which is the very delay the placeholder exists to
+  // cover. Reading it here, on mount, means the call screen is up almost as soon as
+  // the app is.
+  useEffect(() => {
+    Linking.getInitialURL()
+      .then(url => { if (url && /[?&]cid=/.test(url)) markCallPending(); })
+      .catch(err => console.warn('[StreamWrapper] getInitialURL (pending) failed:', err));
+  }, []);
 
   // Ask for notification permission on iOS so background ring alerts can appear.
   useEffect(() => {
@@ -349,12 +370,16 @@ function StreamWrapper({ children }) {
           const match = url.match(/[?&]cid=([^&]+)/);
           if (!match) { debugLog(`deeplink: no cid (${url.slice(0, 24)})`); return; }
           const cid = decodeURIComponent(match[1]);
+          markCallPending();
           try {
             await c.onRingingCall(cid);
             debugLog(`onRingingCall ok: ${cid.slice(-10)}`);
           } catch (err) {
             console.warn('[StreamWrapper] onRingingCall from deep link failed:', err);
             debugLog(`onRingingCall FAILED: ${err?.message ?? err}`);
+            // The call will never appear, so drop the placeholder now rather than
+            // leaving a "Connecting…" screen up for the rest of the TTL.
+            clearCallPending();
           }
         };
         Linking.getInitialURL().then(recoverCallFromUrl).catch(err =>
@@ -403,6 +428,18 @@ function StreamWrapper({ children }) {
   return (
     <>
       {children}
+      {/* A call is on its way but there is no call object to render yet. Covers the
+          app's own UI so a cold-started call goes straight to a call screen instead
+          of flashing the Home tab for the length of the connect. Rendered BEFORE the
+          StreamVideo block so that on the one frame where both could be mounted, the
+          real ring screen paints on top of this one, never the reverse.
+          Gated on identity: with no identity chosen nothing can progress, and the
+          identity picker must stay reachable. */}
+      {identity && callPending && (
+        <View style={StyleSheet.absoluteFillObject}>
+          <IncomingCallPlaceholder />
+        </View>
+      )}
       {identity && readyClient ? (
         <StreamVideo client={readyClient}>
           <CallOverlay />
