@@ -2,8 +2,21 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Vibration, ActivityIndicator, useWindowDimensions, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCall, useCallStateHooks, CallingState } from '@stream-io/video-react-native-sdk';
-import { useAudioPlayer } from 'expo-audio';
+import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { debugLog } from '../debugLog';
+
+// A hung call.join() must not leave Accept spinning forever with no error (the
+// iPhone symptom). Time it out so a hang becomes a visible failure that resets
+// the button and writes to the debug strip.
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise.then(
+      v => { clearTimeout(t); resolve(v); },
+      e => { clearTimeout(t); reject(e); },
+    );
+  });
+}
 
 // Full-screen incoming call UI shown when the kiosk "Call Mum/Dad" button rings this device.
 export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineStart }) {
@@ -35,6 +48,10 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     Vibration.vibrate(pattern, true);
     if (!useOwnRingtone) return () => Vibration.cancel();
     try {
+      // Reset the session to loud playback before ringing. A previous call ends
+      // with allowsRecording:true (routed to the earpiece); without this the next
+      // ringtone would play quietly through the earpiece instead of the speaker.
+      setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
       player.loop = true;
       player.volume = 1.0; // ring at full scale; the device volume still applies
       player.play();
@@ -71,6 +88,25 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     if (busy) return;
     setBusy('accepting');
     try {
+      // iOS: hand the audio session to WebRTC before joining.
+      //
+      // The ringtone plays through expo-audio, which activates the iOS audio
+      // session. Its allowsRecording defaults to false (per the expo-audio docs),
+      // leaving the session playback-only — and call.join() then hangs forever
+      // trying to acquire the microphone for the call. That is the "tap Accept →
+      // spinner that never resolves" seen on the iPhone. Stop the ringtone and
+      // flip the session to allow recording so join() can set up the mic. Android
+      // never plays this ringtone (useOwnRingtone is iOS-only) and has no conflict.
+      if (useOwnRingtone) {
+        try { player.pause(); player.remove(); } catch (_) {}
+        try {
+          await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+        } catch (e) {
+          console.warn('[IncomingCall] setAudioModeAsync failed:', e);
+          debugLog(`audioMode FAILED: ${e?.message ?? e}`);
+        }
+      }
+
       // Join FIRST, enable media after.
       //
       // The previous order — enable camera+mic, THEN join, all awaited through a
@@ -81,8 +117,12 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       // the actual job of Accept; the camera is secondary, so do it where a stall
       // can't block the connection. CallContent turns tracks on reactively once
       // they're enabled, so enabling after join still shows video.
+      //
+      // join() is time-boxed: a hung join used to spin Accept forever with no
+      // error. Now it fails, resets the button, and logs to the strip so the next
+      // test shows the real cause instead of an eternal spinner.
       debugLog('accept: joining');
-      await call.join();
+      await withTimeout(call.join(), 15000, 'join');
       debugLog('accept: joined ok');
       onAccepted();
       // Fire-and-forget; a camera/mic failure must not strand a connected call.
