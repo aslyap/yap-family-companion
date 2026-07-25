@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Vibration, ActivityIndicator, useWindowDimensions, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Vibration, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCall, useCallStateHooks, CallingState } from '@stream-io/video-react-native-sdk';
-import { setAudioModeAsync } from 'expo-audio';
 import { debugLog } from '../debugLog';
 
 // A hung call.join() must not leave Accept spinning forever with no error (the
@@ -31,8 +30,6 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
   // fires another concurrent join, making it slower still.
   const [busy, setBusy] = useState(null); // null | 'accepting' | 'declining'
 
-  const isIOS = Platform.OS === 'ios';
-
   useEffect(() => {
     // Vibrate only — no in-app ringtone. On iOS Kath has already been alerted by
     // the Bark notification (a loud, continuous ring) and tapped it to answer; a
@@ -42,25 +39,13 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     const pattern = [0, 800, 1400];
     Vibration.vibrate(pattern, true);
 
-    // iOS: warm the audio session for the impending call while the ring screen is
-    // up. Putting it into record mode (allowsRecording) now means call.join() on
-    // Accept finds the session already record-ready and the audio unit warming,
-    // instead of paying that iOS-only cost *inside* join() — which is what made
-    // Accept take ~6-9s (the strip showed a single slow `joining → joined ok`, not
-    // a retry). With no ringtone playing there is no downside to record mode early.
-    //
-    // The outcome goes to the strip: if the warm-up throws, an Accept that is
-    // still slow means "the fix never ran", not "the fix didn't help" — and
-    // without this line those two readings look identical.
-    if (isIOS) {
-      const t0 = Date.now();
-      setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
-        .then(() => debugLog(`audio warm ok in ${Date.now() - t0}ms`))
-        .catch(e => {
-          console.warn('[IncomingCall] audio warm failed:', e);
-          debugLog(`audio warm FAILED: ${e?.message ?? e}`);
-        });
-    }
+    // There is deliberately no iOS audio-session warm-up here any more. One was
+    // added on the theory that the audio session was the iOS-only cost inside
+    // join(); the strip then showed the real cost was callingx waiting on a CallKit
+    // audio-session activation that can never happen on this cert (see index.js),
+    // so the warm-up was treating a symptom that wasn't there. With callingx no
+    // longer set up on iOS, StreamInCallManager configures the session itself at
+    // join time — a second writer to AVAudioSession here would only fight it.
 
     return () => Vibration.cancel();
   }, []);
@@ -88,9 +73,6 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     setBusy('accepting');
     const t0 = Date.now();
     try {
-      // The audio session was put into record mode when the ring screen mounted
-      // (see the effect above), so join() can connect straight away without the
-      // mid-accept session switch that used to cost several seconds on iOS.
       //
       // Join FIRST, enable media after: enabling camera+mic before join once hung
       // the whole accept on iOS (a hanging camera.enable() never let join run). The

@@ -10,8 +10,37 @@ import {
 import App from './App';
 import { getOrCreateClient } from './src/streamClient';
 
-// Must be called before registerRootComponent so the push config is in place
-// when the native callingx module wakes the app from a killed/background state.
+// ANDROID ONLY — deliberately not called on iOS. This is what made iOS Accept slow.
+//
+// setPushConfig unconditionally calls callingx.setup() (StreamVideoRN/index.js),
+// which sets CallingxModule.isSetup = true on whatever platform it runs on. On iOS
+// that flag puts call.join() onto the CallKit path, and every incoming call then
+// awaits, before the join flow even starts:
+//   1. CallingxModule.displayIncomingCall()  — no timeout
+//   2. CallingxModule.answerIncomingCall()   — no timeout
+//   3. waitForAudioSessionActivation()       — 5000ms timeout
+// Step 3 only resolves early on CallKit's didActivateAudioSession, which CANNOT
+// fire here: the free SideStore cert has no aps-environment entitlement, so
+// PushKit/CallKit never function. The debug strip measured exactly this — a
+// successful accept sat in `ringing` for 5012ms (the 5000ms timeout) before
+// reaching JOINING, and the actual SFU connect that followed took 946ms. A first
+// accept after cold start hung the full 30s instead, because steps 1-2 have no
+// timeout at all.
+//
+// A second, quieter effect of the same flag: shouldBypassForCallKit()
+// (registerSDKGlobals.js) skips StreamInCallManager on iOS whenever isSetup is
+// true, on the assumption CallKit owns the audio session. It doesn't here, so
+// nothing was configuring the iOS audio session for calls. Leaving callingx
+// un-set-up on iOS hands that job back to StreamInCallManager, where it belongs.
+//
+// Nothing is lost on iOS: there is no APNs/VoIP path on this cert, so the push
+// config's payload is Android-only anyway (the android block, plus
+// createStreamVideoClient for FCM wake-ups). iOS is rung by Bark and opened by the
+// yapfamily:// deep link, which App.js recovers via client.onRingingCall — none of
+// that goes through StreamVideoRN.
+//
+// Must be called before registerRootComponent so the config is in place when the
+// native module wakes the app from a killed/background state.
 //
 // isExpo: false — use @react-native-firebase/messaging directly.
 // pushProviderName must match the Firebase provider name in the Stream Dashboard
@@ -20,21 +49,23 @@ import { getOrCreateClient } from './src/streamClient';
 // getOrCreateClient reads yap_identity from AsyncStorage so the FCM background
 // handler and App.js share the same client instance — useCalls() sees the
 // active ring call immediately when the app opens from a notification tap.
-StreamVideoRN.setPushConfig({
-  isExpo: false,
-  android: {
-    pushProviderName: 'firebase',
-    incomingChannel: {
-      id: 'stream_incoming_call_notifications',
-      name: 'Incoming Calls',
+if (Platform.OS === 'android') {
+  StreamVideoRN.setPushConfig({
+    isExpo: false,
+    android: {
+      pushProviderName: 'firebase',
+      incomingChannel: {
+        id: 'stream_incoming_call_notifications',
+        name: 'Incoming Calls',
+      },
+      notificationTexts: {
+        title: 'Yap Family calling',
+        body: 'Tap to answer',
+      },
     },
-    notificationTexts: {
-      title: 'Yap Family calling',
-      body: 'Tap to answer',
-    },
-  },
-  createStreamVideoClient: getOrCreateClient,
-});
+    createStreamVideoClient: getOrCreateClient,
+  });
+}
 
 // Android FCM ring handlers — REQUIRED, and previously missing.
 //
