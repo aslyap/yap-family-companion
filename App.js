@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, ActivityIndicator, AppState, Platform, PermissionsAndroid, StyleSheet, Alert } from 'react-native';
+import { View, Text, ActivityIndicator, AppState, Platform, PermissionsAndroid, StyleSheet, Alert, Linking } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { useFonts } from 'expo-font';
@@ -239,6 +239,7 @@ function StreamWrapper({ children }) {
       // Identity cleared — disconnect and tear down.
       if (clientRef.current) {
         clientRef.current.__appStateSub?.remove();
+        clientRef.current.__urlSub?.remove();
         clientRef.current.disconnectUser().catch(() => {});
         clientRef.current = null;
         clearClient();
@@ -334,6 +335,31 @@ function StreamWrapper({ children }) {
         if (cancelled) return;
         setReadyClient(c);
 
+        // iOS cold-open recovery via the ntfy deep link.
+        //
+        // On iOS there is no FCM path to deliver an incoming call, and simply
+        // connecting the client does not surface a call that is already ringing —
+        // the strip read `me=kath calls=0` after a cold open, and queryCalls below
+        // returned nothing. The ntfy banner's deep link carries the ringing call's
+        // cid; onRingingCall(cid) registers that exact call so it lands in
+        // useCalls() and CallOverlay shows the ring screen. Deterministic, unlike
+        // the ringing filter.
+        const recoverCallFromUrl = async url => {
+          if (!url) return;
+          const match = url.match(/[?&]cid=([^&]+)/);
+          if (!match) return;
+          const cid = decodeURIComponent(match[1]);
+          try {
+            await c.onRingingCall(cid);
+          } catch (err) {
+            console.warn('[StreamWrapper] onRingingCall from deep link failed:', err);
+          }
+        };
+        Linking.getInitialURL().then(recoverCallFromUrl).catch(err =>
+          console.warn('[StreamWrapper] getInitialURL failed:', err),
+        );
+        c.__urlSub = Linking.addEventListener('url', ({ url }) => recoverCallFromUrl(url));
+
         // Fetch any ringing calls we missed while the client was offline (e.g. app
         // was killed/suspended by iOS and woken by an ntfy notification).
         c.queryCalls({ filter_conditions: { ringing: true }, limit: 5, watch: true })
@@ -362,6 +388,7 @@ function StreamWrapper({ children }) {
       setReadyClient(null);
       if (clientRef.current) {
         clientRef.current.__appStateSub?.remove();
+        clientRef.current.__urlSub?.remove();
         clientRef.current.disconnectUser().catch(() => {});
         clientRef.current = null;
         clearClient();
