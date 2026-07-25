@@ -144,6 +144,31 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       // and did nothing useful. reject() is the single, complete decline action.
       await call.reject();
       debugLog('reject ok');
+
+      // ...then end the call for everyone, because reject() alone provably does not
+      // close the kiosk. Measured: the strip read `reject ok` (a real 200 — the SDK
+      // throws on anything else) while the kiosk, with a listener confirmed attached
+      // and logging before any filtering, received no `call.rejected` whatsoever and
+      // sat on "Calling Dad…" forever.
+      //
+      // reject() stays because it is the correct semantic — it records WHO declined
+      // and is what a ringing flow expects. endCall() is what actually terminates the
+      // call, and it is the same call the hangup path makes, which is confirmed
+      // working from this phone (session 15 read `endCall ok`). It also means decline
+      // no longer depends on one specific event being delivered to the kiosk.
+      //
+      // NOT leave(): reject() has already removed us, and leave() after it throws
+      // "Cannot leave call that has already been left" (proven on the strip).
+      try {
+        await call.endCall();
+        debugLog('endCall ok');
+      } catch (e) {
+        // Non-fatal for us — we have already declined and this screen is going away.
+        // Logged, never swallowed: if the kiosk still hangs, this line is the answer.
+        console.warn('[IncomingCall] endCall after reject failed:', e);
+        debugLog(`endCall FAILED: ${e?.message ?? e}`);
+      }
+
       onDeclined?.();
     } catch (e) {
       console.warn('[IncomingCall] decline failed:', e);
