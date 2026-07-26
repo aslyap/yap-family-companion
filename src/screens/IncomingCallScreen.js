@@ -139,7 +139,20 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
             debugLog(`#${n} camera FAILED ${since()}: ${e?.message ?? e}`);
           });
         call.microphone.enable()
-          .then(() => debugLog(`#${n} mic ok ${since()}`))
+          .then(() => {
+            // `mic ok` used to mean only that the promise resolved, which is not
+            // the same as having a microphone. The Android strip read `mic ok
+            // +935ms` and then `me pub=-V` — enable() succeeded and AUDIO was
+            // still not in publishedTracks. Session 19 hit the mirror image of
+            // this on the kiosk: a mic that reported healthy while bound to a
+            // Windows device alias. So report the actual track, raw and named,
+            // the way the kiosk camera path already does.
+            const track = call.microphone.state.mediaStream?.getAudioTracks?.()[0];
+            const detail = track
+              ? `${track.readyState} muted=${track.muted} enabled=${track.enabled}`
+              : 'NO TRACK';
+            debugLog(`#${n} mic ok ${since()} status=${call.microphone.state.status} [${detail}]`);
+          })
           .catch(e => {
             console.warn('[IncomingCall] mic.enable failed:', e);
             debugLog(`#${n} mic FAILED ${since()}: ${e?.message ?? e}`);
