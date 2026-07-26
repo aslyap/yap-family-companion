@@ -8,8 +8,9 @@ already pushed, and already installed. No build is needed for Priorities 1 or 2.
 ⚠️ **Session 24 ran at 23:28 and could not place a single call** — quiet hours.
 Start this session **after 07:00 SGT** or there is nothing to do. See below.
 
-Read this file and the memory index first. Companion `main` at `68d847c`, kiosk
-`main` at `d8b1be5` — **deployed to Vercel and hard-refreshed on the Beelink**.
+Read this file and the memory index first. Companion `main` is whatever this
+commit is (docs only — the last **code** commit is `f746e73`); kiosk `main` at
+`d8b1be5`, **deployed to Vercel and hard-refreshed on the Beelink**.
 The Fly backend is deployed; session 23 changed only a comment in it, so it needs
 nothing.
 
