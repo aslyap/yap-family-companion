@@ -28,6 +28,7 @@ import { callSeq } from './src/callTrace';
 import { markCallPending, clearCallPending, useCallPending, isCallPending } from './src/pendingCall';
 import { isAccepting, pruneAccepting } from './src/acceptState';
 import { returnToAndroidHome } from './src/returnHome';
+import { postMissedCall } from './src/missedCall';
 import { COLORS } from './src/theme';
 
 // TEMPORARY — set to false (or delete CallDebugStrip) once the cold-start ring works.
@@ -160,8 +161,30 @@ function CallOverlay() {
   // sitting on the app's own Home tab. One place catches every end path.
   const showingCall = !!(active || outgoingRinging || outgoingCall || incomingRingCall);
   const wasShowingCallRef = useRef(false);
+
+  // Was the call that is currently on screen an incoming ring nobody has dealt
+  // with yet? Tracked as a ref rather than derived at teardown because by the time
+  // the screen goes away the call is already gone from useCalls() — there is
+  // nothing left to inspect.
+  //
+  // 'answered' the moment it becomes active or Accept is pressed, 'declined' when
+  // Decline is. Still 'ringing' when the screen disappears means it rang out:
+  // either the kiosk gave up or the caller hung up. That is a missed call.
+  const ringOutcomeRef = useRef(null);
+  if (incomingRingCall) ringOutcomeRef.current = 'ringing';
+  if (active || (incomingRingCall && isAccepting(incomingRingCall.cid))) {
+    ringOutcomeRef.current = 'answered';
+  }
+  if (userDeclinedRef.current && ringOutcomeRef.current === 'ringing') {
+    ringOutcomeRef.current = 'declined';
+  }
+
   useEffect(() => {
     if (wasShowingCallRef.current && !showingCall) {
+      // Before returnToAndroidHome(), which backgrounds the app — hand the
+      // notification to the OS while this process is still definitely alive.
+      if (ringOutcomeRef.current === 'ringing') postMissedCall();
+      ringOutcomeRef.current = null;
       returnToAndroidHome();
     }
     wasShowingCallRef.current = showingCall;
@@ -481,6 +504,11 @@ function StreamWrapper({ children }) {
           await PermissionsAndroid.requestMultiple([
             PermissionsAndroid.PERMISSIONS.CAMERA,
             PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+            // Android 13+ requires this before the app may post anything, which
+            // includes the missed-call note (src/missedCall.js). Older versions
+            // return 'never_ask_again' for an unknown permission and carry on, so
+            // no version guard is needed.
+            PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
           ]);
           // Request battery optimisation exclusion so Android doesn't kill the FCM
           // handler when the app is in the background/killed state. Android skips the
