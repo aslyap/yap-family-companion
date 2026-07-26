@@ -277,6 +277,34 @@ async function recoverCallFromUrl(client, url) {
   const match = url?.match(/[?&]cid=([^&]+)/);
   if (!match) { debugLog(`deeplink: no cid (${url?.slice(0, 24)})`); return; }
   const cid = decodeURIComponent(match[1]);
+
+  // If we already have this call, do nothing.
+  //
+  // On the second call onwards the app is already open, so the ring screen appears
+  // by itself AND Bark fires — and the kiosk cannot cancel a Bark push. Tapping
+  // that banner ran onRingingCall on a call that was already ringing, joining or
+  // joined, putting a second call screen over the first and re-entering the accept
+  // flow on a call that was mid-join. That is the "another Yap Family call screen,
+  // then the wheel spins for about 30 seconds" report — 30s being withTimeout's
+  // budget around join() in IncomingCallScreen, which is exactly what a second
+  // join() on an already-joining call would burn.
+  //
+  // Only a call we have never seen, or one sitting IDLE, needs recovering.
+  try {
+    const existing = client.state?.calls?.find(c => c.cid === cid);
+    const state = existing?.state?.callingState;
+    if (existing && state !== CallingState.IDLE) {
+      debugLog(`deeplink: already have ${cid.slice(-10)} (${state})`);
+      clearCallPending();
+      return;
+    }
+  } catch (err) {
+    // Never swallow: if this check throws we fall through to onRingingCall, which
+    // is the old behaviour, but the strip must say the guard didn't run.
+    console.warn('[StreamWrapper] existing-call check failed:', err);
+    debugLog(`deeplink: guard FAILED: ${err?.message ?? err}`);
+  }
+
   try {
     await client.onRingingCall(cid);
     debugLog(`onRingingCall ok: ${cid.slice(-10)}`);

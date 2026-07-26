@@ -117,6 +117,12 @@ function interrupted(p) {
   return ` int=${flags(tracks)}`;
 }
 
+// Just the flags — the part that genuinely changes state rather than flapping.
+function shapeOf(p) {
+  if (p?.isLocalParticipant) return `me pub=${published(p)}`;
+  return `${p?.userId ?? '?'} pub=${published(p)} sub=${subscribed(p)}`;
+}
+
 function describe(p) {
   // No `sub=` for ourselves: we never subscribe to our own tracks, so it would read
   // `--` on every healthy call and invite exactly the misreading this file exists to
@@ -142,11 +148,22 @@ const MAX_TRACE_MS = 180000;
 // so a trace that chattered would silently destroy the evidence it was added to
 // collect. `muted` on a remote audio receiver can flap on RTP stalls; six changes
 // is already the whole story, and anything beyond that is churn.
-// Cut from 6: the iPhone reading spent 5 of them walking `me` from pub=-- to
-// pub=AV one track at a time, which the `me pub=` field on the final line already
-// says. The remote's sub=/muted state is what matters and it settles in the first
-// two or three.
-const MAX_LINES = 4;
+// Changes are logged on the COARSE shape only — participant set and pub=/sub=
+// flags — never on track detail. `muted` on a remote audio receiver flaps, and a
+// cap that counts those emissions stops the trace within the first two seconds of
+// the call. That is exactly what went wrong: the strip read
+// `family-hub … sub=a- a[live muted=true] (last)` and I took it to mean the phone
+// never subscribes to video, when the phone was visibly rendering the kiosk's
+// video in the same photograph. The trace had simply stopped. Early churn must not
+// be able to hide the settled state.
+const MAX_SHAPE_LINES = 5;
+
+// …and the settled state gets logged regardless, on a timer, whether or not
+// anything "changed". This is the line that answers "does the kiosk's audio ever
+// come off muted", which no change-triggered line can answer: if it never
+// unmutes, nothing changes, so nothing is logged, and silence looks identical to
+// not-being-watched.
+const SETTLE_MARKS_MS = [6000, 15000];
 
 /**
  * Watch a call's participants for as long as it lasts and write every CHANGE to
@@ -172,38 +189,58 @@ export function traceCall(call, label = '') {
   const n = callSeq(call);
   const t0 = Date.now();
   const since = () => `+${Date.now() - t0}ms`;
+  const tag = `#${n}${label ? ` ${label}` : ''}`;
   let last = null;
   let lines = 0;
+  let latest = [];
   let disposed = false;
 
   const subs = [];
+  const timers = [];
   const dispose = () => {
     if (disposed) return;
     disposed = true;
-    clearTimeout(timer);
+    timers.forEach(clearTimeout);
     subs.forEach(s => {
       try { s?.unsubscribe?.(); } catch (e) { console.warn('[callTrace] unsubscribe failed:', e); }
     });
     active.delete(cid);
   };
-  const timer = setTimeout(dispose, MAX_TRACE_MS);
+  timers.push(setTimeout(dispose, MAX_TRACE_MS));
+  // Unconditional snapshots of whatever the state is at these points.
+  SETTLE_MARKS_MS.forEach(ms => {
+    timers.push(
+      setTimeout(() => {
+        const remotes = latest.filter(p => !p.isLocalParticipant);
+        debugLog(
+          `${tag} settled ${since()} n=${latest.length} rem=${remotes.length}` +
+            (latest.length ? ` | ${latest.map(describe).join(' | ')}` : ''),
+        );
+      }, ms),
+    );
+  });
   active.set(cid, dispose);
 
   try {
     subs.push(
       call.state.participants$.subscribe(participants => {
+        latest = participants;
         const remotes = participants.filter(p => !p.isLocalParticipant);
-        const line =
+        // Coarse shape: who is here and which tracks each publishes/we subscribe
+        // to. Deliberately excludes readyState/muted/interrupted — those flap, and
+        // letting them consume the budget is what truncated the last reading.
+        const shape =
           `n=${participants.length} rem=${remotes.length}` +
-          (participants.length ? ` | ${participants.map(describe).join(' | ')}` : '');
-        if (line === last) return;
-        last = line;
-        if (lines >= MAX_LINES) return;
+          (participants.length ? ` | ${participants.map(shapeOf).join(' | ')}` : '');
+        if (shape === last) return;
+        last = shape;
+        if (lines >= MAX_SHAPE_LINES) return;
         lines += 1;
-        // Say when we stop, so a truncated trace can never be mistaken for a call
-        // that simply went quiet.
-        const more = lines === MAX_LINES ? ' (last)' : '';
-        debugLog(`#${n}${label ? ` ${label}` : ''} ${since()} ${line}${more}`);
+        // Say when we stop changing-logging, so a capped trace can never be
+        // mistaken for a call that simply went quiet. The settled snapshots keep
+        // coming either way.
+        const more = lines === MAX_SHAPE_LINES ? ' (shape cap)' : '';
+        debugLog(`${tag} ${since()} ${shape}${more}`);
       }),
     );
     // Stop of our own accord when the call is over, so call 2's lines can never be
