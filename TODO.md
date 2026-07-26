@@ -5,7 +5,8 @@
 **iOS calling is finished. Android is the whole job now.**
 
 Read this file and the memory index first.
-Companion `main` at `7873da9`. Kiosk `main` at `078c781`.
+Companion `main` at `3d400c0`. Kiosk `main` at `078c781`, **deployed to Fly and
+verified** (`/health` 200, `/api/ring/stop` → `{"ok":true}`).
 
 Session 22 verified everything session 21 left open and fixed the two cosmetic
 items on top of it. Nothing about iOS calling is outstanding except installing a
@@ -32,13 +33,17 @@ Build `build-android.yml`, install on the Oppo, and test in this order:
 
 The strip is still in the build; read it before theorising.
 
-### Priority 2 — two things pushed but not yet live
+### Priority 2 — one iOS build, already running
 
-- **Companion `7873da9`** removes the duplicate "Yap Family is calling"
-  notification on iOS. Pushed, **needs an iOS build**, unverified. An iOS build
-  was being triggered as session 22 ended.
-- **Kiosk `a6cddca`** fixes the misleading `[ring] bark sent` log line. Pushed,
-  **needs a Fly deploy**, which has NOT been done.
+**Companion `7873da9`** removes the duplicate "Yap Family is calling"
+notification on iOS. An iOS build was **running when session 22 ended** — install
+it and confirm only Bark arrives now. Reproduce with: answer, hang up, lock the
+phone immediately, call again. Before the fix that gave a quiet "Yap Family is
+calling" banner instantly and Bark ~5s later; after it, Bark only.
+
+The backend is done: `a6cddca` is **deployed to Fly and verified**, so the log now
+reads `[ring] bark sending now` before the push and `[ring] bark accepted, relay
+took Nms` after, instead of one line whose timestamp was the relay round trip.
 
 ### Priority 3 — strip the debug code
 
@@ -1148,8 +1153,8 @@ causes of the earlier failures.
 - [ ] **Retest decline on Android** — reported broken, never retested after the
       client and publish paths were fixed underneath it. Open three sessions.
       **Session 23 Priority 1.**
-- [ ] **Deploy the backend** — `a6cddca` (honest `[ring] bark` timing) is pushed
-      but not deployed to Fly
+- [x] ~~Deploy the backend~~ — `a6cddca` (honest `[ring] bark` timing) **deployed
+      and verified** end of session 22
 - [ ] **Target Resolution is 2160p** on the `default` call type — the phone
       captures 4K and publishes 720p. See Priority 4; the 720p publish is
       currently an accident of `selectDirection`'s constraint defaults
