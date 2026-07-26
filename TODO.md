@@ -1,153 +1,224 @@
 # yap-family-companion — Session Handoff
 
-## Session 20 kickoff prompt
+## Session 21 kickoff prompt
 
-**One bug left in calling: the iPhone's second call. Instrument it, then fix it.**
+**Calling is close. Two functional gaps left, and a debug strip to remove.**
 
-Read this file and the memory index first. Android calling is believed complete
-(pending one build's verification). iOS works perfectly *once per app launch* and
-then degrades until the app is force-killed. That is the whole job.
+Read this file and the memory index first. Companion `main` at `c1d92d8`, pushed.
+Kiosk `main` at `f6fef51`, untouched this session.
 
-### Priority 1 — the iOS second-call bug
+Session 20 killed the bug this file was organised around: **"iOS call 2 receives
+nothing" is not true.** It was never a media-state failure. Do not re-open it —
+see the outcomes below for the evidence.
 
-**Symptom.** First call after launching the app: perfect. Every call after that, in
-the same process: the phone joins (fast — 1658ms, faster than the first), and the
-kiosk sees the phone's video. The phone receives **nothing** — no remote video, no
-audio in either direction. The phone sits on a spinner while the kiosk shows a
-working picture of it.
+### Priority 1 — verify `c1d92d8` on both phones
 
-**Everything already ruled out — do NOT re-test these** (session 19, all on device):
+Five fixes are pushed and **none has been tested**. Build Android first (fast
+loop), then iOS.
 
-| Test | Result | What it rules out |
-|---|---|---|
-| Force-kill the app between calls | ✅ works | it is process-level state |
-| Background >30s → client teardown + re-init (`resume: reconnecting after 43s bg` on the strip) | ❌ still broken | **not the Stream client** — a brand-new client inherits the fault |
-| Hard-refresh the kiosk between calls | ❌ still broken | not kiosk page state |
-| First call answered then hung up | ❌ poisons | — |
-| First call declined (never joined) | ❌ poisons | not media/SFU teardown |
-| First call **only rang**, cancelled from the kiosk | ❌ poisons | **not media at all** — merely ringing is enough |
-| Same sequence on Android | ✅ works back-to-back | iOS-specific |
+1. **Resume no longer eats live calls** (`c1d92d8`). Leave the phone idle >30s,
+   then call it. Strip must read `resume: 48s bg, keeping client (calls=1)` and
+   the ring screen must appear. Previously read `resume: reconnecting after 48s
+   bg` and the call vanished.
+2. **Repeat Bark tap** (`c2eb17d`, iOS only). Second call: Bark and the call
+   screen appear together — tap **Bark**. Accept/Decline must appear in ~2s, not
+   15–25s.
+3. **Camera faces the caller** (`c2eb17d`). Strip logs `cam front re-asserted`.
+4. **Mic track detail** (`f4432c6`) — `mic ok … status=enabled [live muted=false
+   enabled=true]`. Confirmed good on Android; unverified on iOS.
+5. **Token/connect timeouts** (`42a0155`).
 
-So: something native to iOS, created by the *ring*, surviving a full JS client
-teardown, cleared only by killing the process. Every "call 1 left resources behind"
-theory is dead — call 1 never opened a mic or camera in the cancelled-ring case.
+Test protocol that actually produces readable evidence:
+- **Force-kill first** — the `#N` counter is per process and resets only then.
+- **Stay in the call past 15 seconds.** Two lines are written on a timer, at +6s
+  and +15s (`settled`). Every misreading in session 20 came from a trace that had
+  stopped at ~1.1s.
+- On Android the app exits to the launcher when a call ends; **reopen it** (don't
+  kill) to read the strip.
+- Check the `#N` prefix matches the build you think you installed.
 
-**Do not theorise further without instrumentation.** Neither phone produces logs;
-the debug strip is the only surface, and it currently says nothing about what the
-phone *receives*. Add strip lines and build:
-- a process-lifetime call counter, so call 1 and call 2 are directly comparable
-- after join: remote participant count, and for each remote whether audio/video
-  tracks are published and subscribed
-- `participants$` subscribed directly (not from a React effect — `CallOverlay`
-  unmounts the ring screen at JOINING; this trap cost session 17 a cycle)
+### Priority 2 — the iPhone's video reaching the kiosk
 
-The question the strip must answer: does the phone see the kiosk as a participant
-at all on call 2, and if so, does it think that participant has tracks?
+The only functional complaint still standing. The phone's side is provably clean:
+`me pub=AV`, and both `settled` snapshots show the kiosk's own tracks arriving
+`live muted=false` in the other direction. So the link works and the phone
+publishes; the problem is kiosk-side receive or bandwidth. **This needs the kiosk
+console, not the phone strip** — nothing on the phone can narrow it further.
 
-#### Instrumentation added (session 20) — `src/callTrace.js`
+### Priority 3 — the ~2s ring delay on Android (optional)
 
-`callSeq(call)` numbers every call the process sees — including one that only rang
-and was cancelled, which poisons the next call just as much as an answered one, so
-it consumes a number too. Every accept line is now prefixed `#1`, `#2`, … and only
-a force-kill resets the counter, which is exactly the boundary the bug lives on.
+Measured, understood, not a bug: the app kills its own process when a call ends
+(`returnToAndroidHome` → `exitApp`, session 18, deliberate), so **every** incoming
+call is a cold start. `connect: ok in 1637–2252ms` on every call, of which the
+token fetch is **1050–1559ms** — against **29ms** measured from a desk PC, so that
+is the phone's radio. Caching the token in AsyncStorage would remove ~1.2s of it;
+a stale cached token must fall back to a fresh fetch rather than failing the
+connect. Worth doing only if the delay bothers the family.
 
-`traceCall(call)` subscribes `participants$` **directly**, started before `join()`
-and disposed on `left` — *not* on `idle`, because `callingState$` is a
-BehaviorSubject and a call recovered by `queryCalls` is still `idle` at that point.
-It logs only *changes*, capped at 6 lines per call (the last is marked `(last)`) so
-it can never push the join sequence off the strip. Strip capacity raised 10 → 16 so
-call 1 and call 2 are both on screen at once, and the strip now also renders **over**
-the call screens (`pointerEvents="none"`, Hang Up still works underneath) — the
-broken call sits on a spinner forever, which is when the reading is wanted.
+### Priority 4 — retest decline, then strip the debug code
 
-Line format: `#2 +1658ms n=2 rem=1 | me pub=AV | family-hub pub=AV sub=av a[live muted=false] v[live muted=false]`
-- `pub=` what the SFU says that participant publishes (A/V, `-` for neither, `??`
-  if the TrackType enum failed to resolve — never silently `-`)
-- `sub=` whether **we hold a MediaStream** for it. This is the receive side, the
-  thing the kiosk's view of the phone cannot show, and the whole point of the file.
-- `a[…] v[…]` raw `readyState` and `muted`, named — the session-19 `live false`
-  misreading is not repeatable on this format
-- `int=` `interruptedTracks`: intends to publish, no media flowing right now
-- no `sub=` on `me` — we never subscribe to our own tracks and `--` there would
-  invite the same misreading
+Decline was reported broken on Android this session (`kiosk keeps ringing`) but
+was never retested after the client and publish paths were fixed underneath it.
+Retest before investigating: the existing `reject ok` / `endCall ok` / `FAILED`
+lines will name it.
 
-Three readings, three different bugs:
-1. `rem=0` on call 2 — the phone never sees the kiosk. Coordinator/SFU state.
-2. `rem=1 … pub=AV sub=--` — sees it, publishing, never subscribed. Subscriber
-   peer connection / native WebRTC, and the strongest match for "survives a JS
-   client teardown, cleared only by killing the process".
-3. `rem=1 … sub=av` with dead or muted tracks — subscribed but no media; a
-   rendering or native-track problem, not a signalling one.
+Then remove the debug code — full list in the cleanup section below. Keep
+`withTimeout` around `join()`, the kiosk's rejection poll, `[call] watching this
+call:`, and the kiosk `[mic]` lines.
 
-### Priority 2 — verify the Android build
+---
 
-`build-android.yml` at `facb8b3`+. Session 19 triggered no Android test at all, so
-three fixes are still unverified there:
-1. Force-kill, call → straight to a call screen (dark grey, "Yap Family / incoming
-   video call", spinner, then Accept/Decline appear). The app's Home tab first is
-   the bug `bbf55b7` fixes.
-2. Decline without answering → the kiosk closes immediately (immediate = the phone's
-   own `endCall()` from `6f2a797`; ~1s = the kiosk's poll backstop).
-3. Camera faces the caller, not the floor (`facb8b3`).
+## Session 20 outcomes (2026-07-26)
 
-### Priority 3 — small known-broken things
+### The headline: the bug this file was built around does not exist
 
-- **Bark rings after you answer.** `call: '1'` rings continuously until dismissed on
-  the phone, and `cancelCallNotifications()` only stops the ntfy loop — a Bark push
-  cannot be called off from the kiosk. Needs a different mechanism (a second push
-  that replaces the group? an autoCopy/`isArchive` trick?) — unresearched.
-- **Beelink music server is down**, so `24a7119`'s call-time audio-output switch
-  (`POST localhost:5004/audio-output`) fails on every call. Kiosk audio still works;
-  the Bluetooth-lag avoidance does not.
-- **Kiosk calls `join()` twice** on one call object — the "shall be called only once"
-  error is caught and suppressed in `streamVideo.js`. Root cause never found.
-- **Kiosk client accumulates every call** it has ever made this page-session
-  (`useCalls() updated — count: 10`, most stuck at `idle`, none removed).
+`src/callTrace.js` writes an unconditional snapshot of every participant's
+published/subscribed tracks at **+6s and +15s** after joining. On iOS:
 
-### Priority 4 — strip the debug code (only when calling is signed off)
+```
+#1 settled  +6004ms | family-hub pub=AV sub=av a[live muted=false] v[live muted=false] | me pub=AV
+#2 settled  +6004ms | family-hub pub=AV sub=av a[live muted=false] v[live muted=false] | me pub=AV
+```
 
-Deliberately **not** done in session 19: the strip is the only diagnostic surface and
-iOS is not fixed. Full list in the session 19 kickoff below. Keep `withTimeout`
-around `join()`, the kiosk's rejection poll, `[call] watching this call:`, and now
-also the `[mic]` lines (they found a real bug and name the device the call binds to).
-Then retire Yap Dad Companion.
+Call 2 is as healthy as call 1 — subscribed to both tracks, nothing muted, both
+ends publishing. Android reads identically. **The elimination table in the
+session 20 kickoff was answering a question with no failure behind it.**
+
+### Five real bugs, all found from strip readings
+
+| Commit | Bug |
+|---|---|
+| `894e3c1` | Media waited for `join()` to *resolve*, not for JOINED |
+| `42a0155` | Token retry budget (42s) nested inside the connect timeout (20s) |
+| `c2eb17d` | Deep-link URL in a ref, never consumed on a repeat tap |
+| `c2eb17d` | Camera direction overwritten by the SDK after JOINED |
+| `c1d92d8` | Resume reconnect destroyed the client holding the call |
+
+**`894e3c1` — publish at JOINED.** `state joined +2243ms` / `accept: joined ok in
+10579ms`: `join()` reached JOINED and kept running for another **8.3s** (13.9s on
+iOS), inside `doJoin`'s `initPublisherAndSubscriber()` and `applyDeviceConfig()`.
+Camera/mic were enabled after `await join()`, so the phone sat connected and
+publishing nothing for that whole tail — the kiosk showed an avatar. On one call
+the tail outlived the call and `camera.enable()` threw `InvalidStateError` against
+a call that had already left, which read as a camera bug. ⚠️ `callingx` is NOT
+this hang, contrary to the obvious session-17 guess: `Call.join` awaits
+`callingX.joinCall` **before** `setup()`/`doJoin()`, and JOINING was reached at
++11ms.
+
+**`42a0155` — nested timeouts.** 3 token attempts × 12s plus 2s+4s backoff is a
+42s budget inside `CONNECT_TIMEOUT_MS` of 20s, so on a slow radio the outer
+timeout always fired mid-retry, tore the client down, and the replacement
+restarted the token sequence from scratch — a loop that cannot converge. Now
+2 × 8s + 2s = 18s.
+
+**`c2eb17d` — the repeat Bark tap.** From call 2 onward the app is already open,
+so the ring screen appears by itself *and* Bark fires (the kiosk cannot cancel a
+Bark push). The deep-link URL went into a `useRef` consumed by an effect keyed on
+`[readyClient]` alone, so it was only ever read when the client *changed* — once,
+on the cold start it was written for. A second tap stored a URL nothing consumed:
+the guard never ran, `clearCallPending()` never ran, and `IncomingCallPlaceholder`
+sat over the real call screen for its full 25s TTL. **The Accept/Decline buttons
+were underneath the cover the whole time.** Measured at 33.8s. Now state, wrapped
+in an object so two taps on one call count as two arrivals.
+
+**`c2eb17d` — camera direction.** A regression from `894e3c1`: `doJoin` awaits
+`applyDeviceConfig(settings)` *after* setting JOINED, and that applies the call
+type's default camera facing, overwriting our `selectDirection('front')`. Now
+re-asserted once `join()` returns.
+
+**`c1d92d8` — resume ate the call.** `#2 call seen by=family-hub` at 33:03.223,
+`resume: reconnecting after 48s bg` at 33:03.934: 711ms later the handler
+destroyed the client that had just delivered the call, and the call object went
+with it. Structural, not a threshold to tune — being woken *by* an incoming call
+**is** the long-background case, so the >30s rule was guaranteed to fire on the
+calls it must not touch. And a client that just delivered a call has already
+proven its WebSocket alive, which is all the reconnect was checking.
+
+### Measurements worth keeping
+
+- **Ring → Accept/Decline on Android is ~2s of client connect**, not the debug
+  overlay. Every call pays it because the app exits after each call.
+- **Backend token endpoint: 29ms from a desk PC** (measured 3×). Any slow token
+  fetch is the phone's radio, never a Fly cold boot.
+- **`join()` is ~1s when healthy** (`joined ok in 1121ms`), and the tail after
+  JOINED is the variable part.
+- The SDK's own join retries are **intermittent, not per-call**: one reading
+  showed `joining → ringing → joining → ringing → joining → joined` over 7.3s
+  (two failed `doJoin` attempts, after which the SDK sets `migrating_from` and
+  moves SFU); later readings joined cleanly in ~1s.
+
+### ⚠️ Three of my own misreadings, recorded so they are not repeated
+
+1. **"The phone never subscribes to video."** Wrong — `sub=a- (last)` was
+   `traceCall`'s own line cap stopping the trace 1.7s in, while the phone was
+   visibly rendering the kiosk's video in the same photograph.
+2. **"The kiosk's audio arrives dead"** (`a[live muted=true] int=A-`). Same cause:
+   the first ~1.5s of a call that then came up fine.
+3. **"callingx is intercepting `join()` on Android."** Formed and killed within
+   one tool call by reading `Call.join` — it awaits `callingX.joinCall` before
+   `doJoin`, and JOINING was reached at +11ms.
+
+All three came from the same mistake: **a cap that counts emissions truncates the
+evidence**, because remote `muted` flaps. The fix is in the file now — changes are
+logged on the coarse shape only, and the settled state is logged unconditionally
+on a timer.
+
+### Instrumentation added (remove with the strip)
+
+- `src/callTrace.js` — `callSeq()` (process-lifetime `#N` per call, assigned on
+  first sighting so a ring-only call still consumes a number) and `traceCall()`
+  (`participants$` subscribed **directly**, started before `join()`, disposed on
+  `left` — *not* `idle`, because `callingState$` is a BehaviorSubject and a call
+  recovered by `queryCalls` is still `idle` at that point).
+- `streamClient.js` — `connect: start` / `token ok in Xms` / `connect: ok in Xms`
+  / `connect FAILED`, plus the SDK's own warn/error routed to the strip
+  (filtered, deduped, capped at 10).
+- `App.js` — the no-client strip ticks `waited=Ns` and shows the debugLog tail;
+  `CallDebugStrip` now renders **over** the call screens (`pointerEvents="none"`).
+- `IncomingCallScreen.js` — `mic ok … status=… [readyState muted= enabled=]`, not
+  a bare promise resolution.
 
 ### Settled — do NOT re-litigate
 
+- **iOS call 2 is not broken at the media level.** Proven by the settled
+  snapshots, both platforms.
 - **`call.rejected` is never delivered to the kiosk.** Measured, session 18. The
   kiosk polls `session.rejected_by` instead.
 - **Unlock-to-answer on iOS needs a paid Apple account** ($99/yr, declined).
-- **Call ends → app stays open on iOS** is normal; only Android returns home.
-- **WebRTC/SFU connect is ~1s.** 946ms measured; 1225ms on iOS in session 19.
+- **Call ends → app stays open on iOS** is normal; only Android returns home, and
+  it does so by killing its own process.
 - **Stay on GitHub Actions, not EAS.** Public repo ⇒ free unlimited minutes incl.
   `macos-15`; `build-ios.yml` archives **unsigned**, which is what SideStore needs.
 - **The desk KVM is not connected to the Beelink.**
-- **`localhost:5004` errors are two different things**: `/health` is the music server
-  (unrelated to calls), `/audio-output` is the call-time speaker switch (call-related).
+- **`localhost:5004` errors are two different things**: `/health` is the music
+  server (unrelated), `/audio-output` is the call-time speaker switch.
 
 ### Traps (these keep biting)
 
-- **Evidence before theories.** Session 19 burned four wrong theories — stale call
-  objects, a dead kiosk camera, missing `leave()` after `endCall()`, a swallowed mic
-  error. Each was plausible; each died to one test. Two of them were *my misreadings
-  of a log line*, so read the code that produced a line before interpreting it
-  (`[cam] post-enable: live false` is `readyState` + `muted`, i.e. healthy).
-- **Check the bundle/commit before trusting a reading.** Session 19 hit this twice.
-  For the kiosk the cheap check is the **bundle filename** in the console
-  (`index-XXXX.js`) — if it hasn't changed, the code isn't deployed, and no amount of
-  log-reading means anything.
+- **Evidence before theories** — but also: *check the instrument before trusting
+  the evidence*. Session 20's three wrong readings were all the instrument
+  truncating, not the app misbehaving.
+- **A change-triggered log cannot report a state that never changes.** If the
+  kiosk's audio never unmutes, nothing changes, so nothing is logged, and silence
+  looks identical to not-being-watched. Timed snapshots, not just diffs.
+- **Confirm which build a reading came from.** The `#N` prefix does this on the
+  phone; the bundle filename (`index-XXXX.js`) does it on the kiosk. Both caught
+  a stale build this session.
 - A kiosk change needs a push AND a Vercel deploy; **env-var changes need a REDEPLOY**.
-- **Never `.catch(() => {})`.** Session 19 found another one on the kiosk mic.
+- **Never `.catch(() => {})`.** Another one found and removed this session, on the
+  resume path.
 - Neither phone produces logs — the strip and the kiosk console are the only surfaces.
-- **Windows lists each audio device three times** — the real device plus `Default - …`
-  and `Communications - …` aliases. Bind to the real one.
-- **Test hardware differs**: session 19's calls were made from the *upstairs* PC, not
-  the Beelink. Device names (and therefore the mic preference list) differ between
-  them. Confirm which machine a reading came from.
-- Calling Adrian exercises zero Bark code (kiosk maps only kath). PowerShell 5.1
-  mangles emoji. Don't test chat (burns the family's daily budget).
+- **Windows lists each audio device three times** — real plus `Default - …` and
+  `Communications - …` aliases. Bind to the real one.
+- **Test hardware differs**: confirm whether a kiosk reading came from the Beelink
+  or the upstairs PC — device names differ.
+- Calling Adrian exercises **zero Bark code** (kiosk maps only `kath`), so it
+  cannot test the deep-link path. PowerShell 5.1 mangles emoji. Don't test chat
+  (burns the family's daily budget).
 - The Beelink's touchscreen died at the Windows lock screen mid-session (password
   `2909`, no keyboard attached). Reseat the display's USB cable or attach a keyboard.
+
+---
 
 ### Session 19 outcomes (2026-07-25)
 
@@ -774,21 +845,29 @@ causes of the earlier failures.
       (session 19): Bark tap → call screen immediately
 - [x] ~~Kiosk publishes no audio~~ — wrong device, not a failure: the selector matched
       a Windows `Default - …` alias. Fixed `11c6b6e`/`f6fef51`, **confirmed** (s19)
-- [ ] 🔴 **iOS: only the FIRST call per app launch works.** Later calls join and
-      publish (the kiosk sees the phone) but receive nothing — no remote video, no
-      audio either way. Not the client, not media cleanup, not the kiosk; cleared only
-      by force-killing the app. Android is immune. **Session 20 Priority 1.**
-- [ ] **Verify on Android** (`facb8b3` build): the call-screen placeholder
-      (`bbf55b7`), instant decline (`6f2a797`), front camera (`facb8b3`) — none has
-      run on an Android device
-- [ ] **Verify the front-camera fix on iOS** (`facb8b3`) — build held until the
-      session-20 instrumentation is written
+- [x] ~~🔴 iOS: only the FIRST call per app launch works~~ — **not a real bug**
+      (session 20). The `settled` snapshots at +6s/+15s show call 2 as healthy as
+      call 1 on both platforms: `pub=AV sub=av`, nothing muted. The symptoms behind
+      it were the five bugs listed in the session 20 outcomes.
+- [x] ~~Call-screen placeholder on Android~~ (`bbf55b7`) — confirmed session 20
+- [ ] 🔴 **Verify `c1d92d8` on both phones** — five fixes pushed, none tested.
+      **Session 21 Priority 1.**
+- [ ] 🔴 **iPhone video reaching the kiosk is slow/unusable.** The phone publishes
+      (`me pub=AV`) and receives the kiosk's tracks live, so this is kiosk-side.
+      Needs the kiosk console. **Session 21 Priority 2.**
+- [ ] **Retest decline on Android** — reported broken this session, never retested
+      after the client and publish paths were fixed underneath it
+- [ ] ~2s ring delay on Android: every call is a cold start because the app exits
+      after each one; ~1.2s of it is the token fetch and is cacheable (optional)
 - [ ] Bark keeps ringing after the call is answered — `call: '1'` rings until
       dismissed on the phone and the kiosk cannot cancel a Bark push
 - [ ] Kiosk calls `join()` twice on one call object (error suppressed, cause unknown)
 - [ ] Kiosk client never drops finished calls — `useCalls()` count climbs all session
 - [ ] Beelink music server down ⇒ `24a7119`'s call-time audio-output switch fails
-- [ ] Remove the debug code once iOS is signed off (list in the session 19 kickoff)
+- [ ] Remove the debug code once calling is signed off — now also `src/callTrace.js`
+      and the `connect:` / `token` / `[sdk]` lines in `streamClient.js`, the
+      `WaitedSeconds` / `DebugLogLines` components in `App.js`, and `CallDebugStrip`
+      rendering over the call screens
 - [ ] Confirm SideStore refresh moved the expiry date (must be Kath's real phone)
 - [ ] Retire Yap Dad Companion
       (`C:\Users\user\Desktop\Digital Dashboard\yap-dad-companion`)
