@@ -79,11 +79,12 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     const n = callSeq(call);
     try {
       //
-      // Join FIRST, enable media after: enabling camera+mic before join once hung
-      // the whole accept on iOS (a hanging camera.enable() never let join run). The
-      // camera is secondary — enable it once the call is connected. join() is
-      // time-boxed so a genuinely hung join surfaces as a failure on the strip
-      // instead of an infinite spinner.
+      // Start join FIRST, enable media once the SFU says JOINED: enabling
+      // camera+mic before join once hung the whole accept on iOS (a hanging
+      // camera.enable() never let join run). join() is time-boxed so a genuinely
+      // hung join surfaces as a failure on the strip instead of an infinite
+      // spinner. What media must NOT wait for is join() *resolving* — see
+      // startMedia below.
       debugLog(`#${n} accept: joining`);
       // Started BEFORE join, and deliberately not stopped when this screen goes
       // away: the kiosk should appear as a participant during or just after the
@@ -101,9 +102,56 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       // screen mid-join, so an effect would stop reporting exactly when the
       // interesting part starts.
       const since = () => `+${Date.now() - t0}ms`;
+
+      // Publish as soon as the SFU says we are JOINED — do NOT wait for join() to
+      // resolve.
+      //
+      // Measured on Android: `state joined +2243ms` and `accept: joined ok in
+      // 10579ms`. join() sets JOINED and then keeps going for another 8.3 seconds
+      // inside doJoin (initPublisherAndSubscriber, then applyDeviceConfig). For the
+      // whole of that tail the phone was connected and publishing nothing, which is
+      // why the kiosk showed an avatar instead of a picture. Worse, that call ended
+      // at +9985ms — before join() returned at all — so camera.enable() ran against
+      // a call that had already left and threw `camera FAILED: InvalidStateError`.
+      // The media never came on at all, and the failure looked like a camera bug.
+      //
+      // JOINED means the SFU connection is up, which is the only precondition
+      // publishing actually has. Bound to the state transition rather than the
+      // promise so the tail cannot delay or cancel it.
+      let mediaStarted = false;
+      const startMedia = () => {
+        if (mediaStarted) return;
+        mediaStarted = true;
+        debugLog(`#${n} media: enabling ${since()}`);
+        // Fire-and-forget; a camera/mic failure must not strand a connected call.
+        //
+        // selectDirection('front'), NOT flip(). flip() is a toggle — it was added in
+        // 5c7caff to get the front camera when the call opened on the back one, so it
+        // only produces the front camera from a known-back starting point. On the
+        // iPhone the call already opens front-facing, so the flip turned it AWAY from
+        // Kath and pointed it at the floor. selectDirection is absolute: front is front
+        // whatever the call started on, on either platform.
+        call.camera.enable()
+          .then(() => call.camera.selectDirection('front'))
+          .then(() => debugLog(`#${n} camera ok ${since()}`))
+          .catch(e => {
+            console.warn('[IncomingCall] camera.enable/selectDirection failed:', e);
+            debugLog(`#${n} camera FAILED ${since()}: ${e?.message ?? e}`);
+          });
+        call.microphone.enable()
+          .then(() => debugLog(`#${n} mic ok ${since()}`))
+          .catch(e => {
+            console.warn('[IncomingCall] mic.enable failed:', e);
+            debugLog(`#${n} mic FAILED ${since()}: ${e?.message ?? e}`);
+          });
+      };
+
       let sub;
       try {
-        sub = call.state.callingState$.subscribe(s => debugLog(`#${n} state ${s} ${since()}`));
+        sub = call.state.callingState$.subscribe(s => {
+          debugLog(`#${n} state ${s} ${since()}`);
+          if (s === CallingState.JOINED) startMedia();
+        });
       } catch (e) {
         // Not fatal — the join still runs, we just lose the breakdown. Say so,
         // rather than leaving a silent gap that looks like "no transitions".
@@ -117,24 +165,10 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       }
       debugLog(`#${n} accept: joined ok in ${Date.now() - t0}ms`);
       onAccepted();
-      // Fire-and-forget; a camera/mic failure must not strand a connected call.
-      //
-      // selectDirection('front'), NOT flip(). flip() is a toggle — it was added in
-      // 5c7caff to get the front camera when the call opened on the back one, so it
-      // only produces the front camera from a known-back starting point. On the
-      // iPhone the call already opens front-facing, so the flip turned it AWAY from
-      // Kath and pointed it at the floor. selectDirection is absolute: front is front
-      // whatever the call started on, on either platform.
-      call.camera.enable()
-        .then(() => call.camera.selectDirection('front'))
-        .catch(e => {
-          console.warn('[IncomingCall] camera.enable/selectDirection failed:', e);
-          debugLog(`camera FAILED: ${e?.message ?? e}`);
-        });
-      call.microphone.enable().catch(e => {
-        console.warn('[IncomingCall] mic.enable failed:', e);
-        debugLog(`mic FAILED: ${e?.message ?? e}`);
-      });
+      // Backstop only. startMedia() has almost certainly already run off the JOINED
+      // transition above; it is idempotent. This covers the case where join()
+      // resolves without callingState$ ever emitting JOINED to this subscriber.
+      startMedia();
     } catch (e) {
       console.warn('[IncomingCall] accept failed:', e);
       debugLog(`#${n} join FAILED after ${Date.now() - t0}ms: ${e?.message ?? e}`);
