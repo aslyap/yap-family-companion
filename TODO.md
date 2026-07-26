@@ -6,37 +6,52 @@
 untested, and the debug code is ready to come out.**
 
 Read this file and the memory index first.
-Companion `main` at `cd45317`. Kiosk `main` at `9c925c0` (kiosk **and** the Fly
-backend — `calendar_backend.py` lives in the kiosk repo).
+Companion `main` at `07a124a`. Kiosk `main` at `9c925c0`.
 
 Session 21 was a measurement session and it moved a lot. Three long-standing
 "facts" turned out to be wrong, so check the outcomes below before acting on any
 assumption you inherit.
 
-### Priority 1 — verify the two untested fixes
+### Priority 1 — run this test, first thing
 
-Both need an **iOS build** and a **Vercel deploy + Fly deploy**.
+**State at handoff.** Fly backend **deployed and verified** — `/api/ring/stop`
+returned `{"ok":true}`. iOS **and** Android builds were triggered at `07a124a`.
+Nothing has been tested.
 
-1. **Video bitrate ramp (`a345bb3`, phone).** May already have been built and
-   tested at the end of session 21 — check with the user before re-testing.
-   `call.updatePublishOptions({ dangerouslySetStartBitrateFactor: 0.5 })` before
-   `join()`. Expect the kiosk's first `[rx]` sample at +6s to read ~30fps instead
-   of 12fps. The strip prints `publish: start bitrate x0.5` so "the option never
-   applied" and "the option didn't help" cannot be confused.
-2. **Bark push suppression (`cd45317` phone, `9c925c0` kiosk + backend).**
-   ⚠️ Needs `flyctl deploy` for the backend as well as a Vercel deploy — the new
-   `/api/ring/*` endpoints are in `calendar_backend.py`.
+**Give the user exactly these steps, in this order, and nothing else:**
 
-   Test it in both directions, and the second one matters more:
-   - **App already open** → call → **no Bark push at all**, ring screen only.
-     Kiosk console reads `[bark] held by backend`; Fly logs read
-     `[ring] …: suppressed, phone is ringing on screen`. Answer from the app
-     screen; audio must work both ways (this is the whole point).
-   - **App force-killed / phone asleep** → call → **Bark must still ring**,
-     ~1.2s later than before. This is the one that must never regress; a missed
-     call is far worse than a redundant banner.
-   - **Backend down** (stop the Fly machine) → call → Bark still rings
-     immediately via the kiosk's direct fallback.
+> **1.** Hard refresh the kiosk (Ctrl+Shift+R).
+>
+> **2.** Install the iOS build.
+>
+> **3.** Three calls:
+>
+> - **Call 1:** Force-kill the app first. Call. Tap Bark. Accept. Stay 40 seconds.
+> - **Call 2:** Don't kill the app. Call. Accept on the Yap Family screen. Stay 40 seconds.
+> - **Call 3:** Leave the phone alone 60 seconds, screen off. Call. Note whether it rings.
+>
+> **4.** Send me the kiosk console after call 1, the kiosk console after call 2,
+> and whether call 3 rang.
+
+**How to read the results.** The strip must say `b=07a124a` or the reading is
+void.
+
+| | expect | meaning |
+|---|---|---|
+| Call 1 | Bark appears (app was dead — correct). First `[rx]` sample at +6s ~**30fps**, not 12fps | `a345bb3` bitrate fix works |
+| Call 2 | **No Bark at all.** Kiosk logs `[bark] held by backend`. Audio works both ways | `cd45317`/`9c925c0` Bark suppression works |
+| Call 3 | Bark rings, ~1.2s later than before | the suppression fails safe — **this must never regress** |
+
+Call 3 is the one that matters most. A redundant Bark is a broken audio session;
+no Bark at all is a missed call, which is far worse.
+
+If call 2 still shows a Bark banner, check the kiosk console first: `[bark]
+backend hold unavailable, sending directly` means the kiosk could not reach the
+backend and fell back — that is the fallback working, not the fix failing.
+
+**Android** was also built at `07a124a` and has not been verified since
+`43a9261`. Bark is iOS-only, so those tests do not apply; what Android needs is
+**the decline retest**, open and unretested for two sessions.
 
 ### Priority 2 — strip the debug code
 
