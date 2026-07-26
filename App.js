@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, ActivityIndicator, AppState, Platform, PermissionsAndroid, StyleSheet, Alert, Linking } from 'react-native';
-import * as Notifications from 'expo-notifications';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { useFonts } from 'expo-font';
 import {
@@ -30,8 +29,6 @@ import { markCallPending, clearCallPending, useCallPending, isCallPending } from
 import { isAccepting, pruneAccepting } from './src/acceptState';
 import { returnToAndroidHome } from './src/returnHome';
 import { COLORS } from './src/theme';
-
-const CALL_NOTIF_ID = 'yap-incoming-call';
 
 // TEMPORARY — set to false (or delete CallDebugStrip) once the cold-start ring works.
 const SHOW_CALL_DEBUG = true;
@@ -139,15 +136,9 @@ function CallOverlay() {
   );
 
   const userDeclinedRef = useRef(false);
-  const appStateRef = useRef(AppState.currentState);
   // Belt-and-suspenders store: catches the call even if useCalls() misses it.
   const [outgoingCall, setOutgoingCallState] = useState(() => getOutgoingCall());
   useEffect(() => onOutgoingCallChange(call => setOutgoingCallState(call)), []);
-
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', s => { appStateRef.current = s; });
-    return () => sub.remove();
-  }, []);
 
   useEffect(() => {
     // Number every call the moment it is first seen, not at accept: a call that
@@ -183,23 +174,26 @@ function CallOverlay() {
     if (showingCall) clearCallPending();
   }, [showingCall]);
 
-  useEffect(() => {
-    if (!incomingRingCall) {
-      Notifications.dismissNotificationAsync(CALL_NOTIF_ID).catch(() => {});
-      return;
-    }
-    if (Platform.OS === 'ios' && appStateRef.current !== 'active') {
-      Notifications.scheduleNotificationAsync({
-        identifier: CALL_NOTIF_ID,
-        content: {
-          title: '📹 Incoming video call',
-          body: 'Yap Family is calling — tap to open',
-          sound: true,
-        },
-        trigger: null,
-      }).catch(() => {});
-    }
-  }, [incomingRingCall]);
+  // The app used to post its own local notification here whenever a ring arrived
+  // while it was not foreground. Removed: on iOS it was a second, competing alert
+  // for the same call, and it could break the call it announced.
+  //
+  // It never added reach. Its guard was `appState !== 'active'`, which is exactly
+  // the condition under which the backend also sends Bark — so it only ever fired
+  // alongside Bark, and being an ordinary notification it stays silent on silent
+  // mode, which is the case Bark's Critical Alert exists for.
+  //
+  // What it cost: measured on device, the local notification is in-process and
+  // instant while Bark is 1.2s of deliberate hold plus the api.day.app relay and
+  // APNs — about 5s apart. Tapping the early one opens the app and the call is
+  // answered, and then Bark rings over the live call, holds the iOS audio session
+  // and mutes it in BOTH directions until it is swiped away. That is the failure
+  // cd45317 exists to prevent, arriving by a different route.
+  //
+  // ⚠️ The one thing this gives up: if a Bark push is ever rejected outright (bad
+  // device key, Bark down) there is now no second alert at all. Accepted
+  // deliberately — a silent banner was never going to be the thing that reached
+  // her, and `[ring] bark rejected` in the Fly log is the signal to watch for.
 
   // Show active screen for: joined call, our outgoing ring (waiting for kiosk to accept),
   // or store-tracked call (belt-and-suspenders if useCalls() missed it).
@@ -411,12 +405,11 @@ function StreamWrapper({ children }) {
     recoverCallFromUrl(readyClient, pendingUrl.url);
   }, [readyClient, pendingUrl]);
 
-  // Ask for notification permission on iOS so background ring alerts can appear.
-  useEffect(() => {
-    if (Platform.OS === 'ios' && identity) {
-      Notifications.requestPermissionsAsync().catch(() => {});
-    }
-  }, [identity]);
+  // The iOS notification-permission request went with the local notification above:
+  // this app no longer posts one, and Bark holds its own permission (including the
+  // Critical Alert entitlement, which this app cannot obtain on a free cert
+  // anyway). Asking for a permission nothing uses is a prompt Kath has to dismiss
+  // for no benefit.
 
   useEffect(() => {
     if (!identity) {
