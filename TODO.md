@@ -1,12 +1,15 @@
 # yap-family-companion — Session Handoff
 
-## Session 24 kickoff prompt
+## Session 25 kickoff prompt
 
-**Android calling is verified. Everything open is a test of code already written
-and already pushed.**
+**Android calling is verified. Everything open is a test of code already written,
+already pushed, and already installed. No build is needed for Priorities 1 or 2.**
 
-Read this file and the memory index first. Companion `main` at `8e14f30`, kiosk
-`main` at `040896d` — **deployed to Vercel and hard-refreshed on the Beelink**.
+⚠️ **Session 24 ran at 23:28 and could not place a single call** — quiet hours.
+Start this session **after 07:00 SGT** or there is nothing to do. See below.
+
+Read this file and the memory index first. Companion `main` at `68d847c`, kiosk
+`main` at `d8b1be5` — **deployed to Vercel and hard-refreshed on the Beelink**.
 The Fly backend is deployed; session 23 changed only a comment in it, so it needs
 nothing.
 
@@ -68,8 +71,7 @@ diff against `8209352` adds only music silencing — the `stopBackendRing()` →
 untouched, and the `IncomingCallOverlay` change is the kiosk *receiving*, not the
 phone.
 
-Call Kath's phone, let it
-ring out, and confirm the "Yap Family calling / Tap to answer" critical alert is
+Call Kath's phone, let it ring out, and confirm the "Yap Family calling / Tap to answer" critical alert is
 **replaced in place** by "Missed call" — one notification, not two. This is the
 screenshot that started it: two stacked alerts, 54 minutes and 1 hour old, both
 still offering to answer.
@@ -96,6 +98,50 @@ failures on it.
   `Yap Family Dashboard`, this PC's is `user`.
 - **Evidence before theories, and check the instrument before trusting the
   evidence.** Sessions 20-23 each lost time to an instrument rather than a fault.
+
+---
+
+## Session 24 outcomes (2026-07-26, 23:00–00:00)
+
+**A short session that tested nothing, because it could not.** Everything below
+is setup and correction, not results.
+
+### Done
+
+- **The Android build is installed on the Oppo and the strip reads `b=8e14f30`.**
+  Run #82, green, 30m 32s. `8e14f30` is docs-only on top of `f746e73`, so both
+  untested changes are present. **Do not re-install or re-verify the tag.**
+- **Priority 2 re-checked against the moved kiosk and is still valid** — see the
+  diff evidence under Priority 2 above.
+- Kiosk repo pulled from `b297eab` → `040896d` (9 commits, quiet hours).
+- Wake-on-LAN diagnosed and fixed — **recorded in the kiosk's TODO.md**, not
+  here, since it is house infrastructure rather than the companion. Stale public
+  IP in the Oppo's WoL app; an open item compares Tailscale-relay vs
+  DDNS + DHCP-reservation as the durable fix.
+
+### Not done
+
+All three Priority 1 tests, Priority 2, and Priority 3. Quiet hours. No code was
+written this session and no theory about calling was formed.
+
+### ⚠️ The mistake that cost the session, recorded so it is not repeated
+
+Asked where quiet hours was documented, I searched all three repos — every `.md`
+in the tree, then every source file **including git-ignored ones** — and reported
+twice, with the evidence laid out, that the feature did not exist in the
+codebase. It did. The kiosk repo was **9 commits behind the remote** and the
+whole feature was in them.
+
+The failure was not the search. The search was thorough, and being thorough is
+what made the wrong answer persuasive. **A stale checkout and an absent feature
+return the identical "no matches".** This is
+[[feedback_check_the_instrument]] with git as the instrument: I checked whether
+ripgrep was hiding files and never checked whether the checkout was current.
+
+**`git fetch --all` in every repo is now the first step of any "does X exist
+here?" question — before the first grep, not after two wrong answers.** The
+companion gets pulled by habit; the kiosk drifts, and the answer often lives in
+the kiosk.
 
 ---
 
