@@ -27,6 +27,7 @@ import { onOutgoingCallChange, getOutgoingCall } from './src/outgoingCallStore';
 import { getDebugLines, onDebugLog, debugLog } from './src/debugLog';
 import { callSeq } from './src/callTrace';
 import { markCallPending, clearCallPending, useCallPending, isCallPending } from './src/pendingCall';
+import { isAccepting, pruneAccepting } from './src/acceptState';
 import { returnToAndroidHome } from './src/returnHome';
 import { COLORS } from './src/theme';
 
@@ -90,10 +91,29 @@ function CallOverlay() {
       c.state.callingState === CallingState.RINGING &&
       c.state.createdBy?.id === identity,
   );
+  // RECONNECTING and MIGRATING count as active.
+  //
+  // Measured on the failing second call: `state reconnecting +18922ms`, mid-accept.
+  // Neither state matched here and neither matches the incoming-ring filter below,
+  // so the overlay rendered NOTHING — the call screen vanished and the app's own
+  // Home tab appeared while the call was still being joined. The SDK reconnects and
+  // migrates SFUs as normal parts of a join (it sets `migrating_from` after two
+  // failed attempts), so these are ordinary states of a live call, not end states.
+  //
+  // A call we have started accepting is active for the whole of its join, whatever
+  // the SDK's state momentarily says. Without that clause the RINGING flap matches
+  // neither this filter nor the incoming one below, and the overlay renders nothing
+  // at all — a blank app in the middle of answering a call. LEFT/endedAt still win,
+  // so an accept that genuinely fails cannot pin a dead call on screen.
+  const isLive = c =>
+    c.state.callingState !== CallingState.LEFT && !c.state.endedAt;
   const active = calls.find(
     c =>
       c.state.callingState === CallingState.JOINED ||
-      c.state.callingState === CallingState.JOINING,
+      c.state.callingState === CallingState.JOINING ||
+      c.state.callingState === CallingState.RECONNECTING ||
+      c.state.callingState === CallingState.MIGRATING ||
+      (isAccepting(c.cid) && isLive(c)),
   );
   // Incoming ring: a call someone ELSE created that we have not joined or left.
   //
@@ -103,12 +123,19 @@ function CallOverlay() {
   // Matching only RINGING meant a push woke the phone, the app opened, and the
   // caller sat ringing with the callee looking at the home screen.
   // endedAt guards against surfacing a call that has already finished.
+  //
+  // A call we have already started accepting is never an incoming ring again, even
+  // when it flaps back to RINGING. join() restores the previous calling state when
+  // an attempt fails, so a call being joined re-enters RINGING for a second or two;
+  // without this the overlay swaps back to the ring screen mid-join and offers
+  // Accept on a call that cannot be joined twice. See src/acceptState.js.
   const incomingRingCall = calls.find(
     c =>
       (c.state.callingState === CallingState.RINGING ||
         c.state.callingState === CallingState.IDLE) &&
       c.state.createdBy?.id !== identity &&
-      !c.state.endedAt,
+      !c.state.endedAt &&
+      !isAccepting(c.cid),
   );
 
   const userDeclinedRef = useRef(false);
@@ -129,6 +156,9 @@ function CallOverlay() {
     // stop lining up with what was actually done to the phone. Numbering only —
     // participant state is watched by traceCall, never from an effect.
     calls.forEach(callSeq);
+    // Forget accept flags for calls the client no longer holds, so the set cannot
+    // grow for the life of the process.
+    pruneAccepting(calls.map(c => c.cid));
     console.log('[CallOverlay] calls:', calls.map(c => `${c.id.slice(-8)}:${c.state.callingState}:createdBy=${c.state.createdBy?.id}`).join(', ') || '(none)');
     console.log('[CallOverlay] active:', active?.id?.slice(-8) ?? 'null', '| outgoingRinging:', outgoingRinging?.id?.slice(-8) ?? 'null', '| outgoingCallStore:', outgoingCall?.id?.slice(-8) ?? 'null', '| incomingRing:', incomingRingCall?.id?.slice(-8) ?? 'null');
   }, [calls, outgoingCall]);

@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCall, useCallStateHooks, CallingState } from '@stream-io/video-react-native-sdk';
 import { debugLog } from '../debugLog';
 import { callSeq, traceCall } from '../callTrace';
+import { markAccepting, isAccepting, clearAccepting } from '../acceptState';
 
 // A hung call.join() must not leave Accept spinning forever with no error (the
 // iPhone symptom). Time it out so a hang becomes a visible failure that resets
@@ -29,7 +30,13 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
   // Accepting takes a few seconds (join the WebRTC call). Without a pending state
   // the screen looks frozen, so the button gets tapped repeatedly and each tap
   // fires another concurrent join, making it slower still.
-  const [busy, setBusy] = useState(null); // null | 'accepting' | 'declining'
+  //
+  // Seeded from the module-level accept set, NOT from null. A join that retries
+  // internally flaps the calling state back to RINGING, which remounts this screen
+  // and would otherwise hand back a live Accept button on a call that is already
+  // joining — see src/acceptState.js. Seeding it means the remounted screen comes
+  // up already showing "Connecting…", which is also the truth.
+  const [busy, setBusy] = useState(() => (isAccepting(call?.cid) ? 'accepting' : null));
 
   useEffect(() => {
     // Vibrate only — no in-app ringtone. On iOS Kath has already been alerted by
@@ -71,6 +78,16 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
 
   async function accept() {
     if (busy) return;
+    // The real guard. `busy` is component state and this screen is remounted
+    // whenever the join flaps back to RINGING, so `busy` alone permits a second
+    // join() on an already-joining call — which the SDK rejects with
+    // `Illegal State: call.join() shall be called only once`, failing the call.
+    if (isAccepting(call?.cid)) {
+      debugLog(`accept ignored: already joining ${call?.cid?.slice(-10)}`);
+      setBusy('accepting');
+      return;
+    }
+    markAccepting(call?.cid);
     setBusy('accepting');
     const t0 = Date.now();
     // Which call of this process is this? On iOS only the first one after launch
@@ -171,6 +188,15 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
         console.warn('[IncomingCall] state subscribe failed:', e);
         debugLog(`state sub FAILED: ${e?.message ?? e}`);
       }
+      // Last line of defence before the SDK's own throw. If anything else already
+      // took this call into the join flow, calling join() again is the documented
+      // Illegal State error and kills a call that was about to succeed.
+      const stateNow = call.state.callingState;
+      if (stateNow === CallingState.JOINING || stateNow === CallingState.JOINED) {
+        debugLog(`#${n} accept: already ${stateNow}, not re-joining`);
+        sub?.unsubscribe?.();
+        return;
+      }
       try {
         await withTimeout(call.join(), 30000, 'join');
       } finally {
@@ -202,6 +228,9 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     } catch (e) {
       console.warn('[IncomingCall] accept failed:', e);
       debugLog(`#${n} join FAILED after ${Date.now() - t0}ms: ${e?.message ?? e}`);
+      // Released only on failure, so a genuine retry is possible. On success the
+      // flag deliberately outlives the join — that is the whole point of it.
+      clearAccepting(call?.cid);
       setBusy(null); // let them try again rather than stranding them on a dead screen
     }
   }
