@@ -1,5 +1,71 @@
 # yap-family-companion — Session Handoff
 
+## Session 24 kickoff prompt
+
+**Android calling is verified. Everything open is a test of code already written
+and already pushed.**
+
+Read this file and the memory index first. Companion `main` at `f746e73`, kiosk
+`main` at `8209352` — **deployed to Vercel and hard-refreshed on the Beelink**.
+The Fly backend is deployed; session 23 changed only a comment in it, so it needs
+nothing.
+
+⚠️ `gh` CLI is **not installed** on this PC. Builds are dispatched from
+`https://github.com/aslyap/yap-family-companion/actions` in a browser and their
+status cannot be polled from the session — ask, never assume.
+
+### Priority 1 — install the Android build of `f746e73` and test three things
+
+The build was **running when session 23 ended**. It carries two untested changes.
+Confirm the strip reads `b=f746e73` before believing any reading.
+
+1. **Accept/Decline appear instantly.** Call the Oppo. The call screen must come
+   up with working buttons, **no spinner where the buttons go**. Press Accept
+   during that window — the press is banked (`src/callIntent.js`) and runs the
+   moment the real screen mounts. Reported as "the connecting spin wheel stays on
+   for about 5 sec and I don't like that".
+   ⚠️ This does **not** shorten the connect. Ring-to-talking is unchanged; only
+   the wait-before-you-can-act is gone. Confirmed with the user as the thing that
+   was actually bothering them.
+2. **Decline from that same early window.** It cannot reach the kiosk any faster
+   — rejecting needs a connected client — but it must not be lost or double-fire.
+3. **Missed call on Android.** Call the Oppo, let it ring out unanswered. A
+   "Missed call — Yap Family called at HH:MM" notification must appear, silently.
+   Declining must produce **no** note.
+
+### Priority 2 — missed call on iOS
+
+Kiosk-side and already live, so this needs no build. Call Kath's phone, let it
+ring out, and confirm the "Yap Family calling / Tap to answer" critical alert is
+**replaced in place** by "Missed call" — one notification, not two. This is the
+screenshot that started it: two stacked alerts, 54 minutes and 1 hour old, both
+still offering to answer.
+
+### Priority 3 — the iOS build from session 22, still not installed
+
+`7873da9` removes the duplicate "Yap Family is calling" notification. Its build
+was running when session 22 ended and has still never been installed. Reproduce
+with: answer, hang up, lock the phone immediately, call again. Before the fix
+that gave a quiet banner instantly and Bark ~5s later; after it, Bark only.
+
+### Then: the four unexplained items, the strip, and Priority 4
+
+See "Four things seen this session that are NOT explained" below — the
+both-directions audio dropout is the one worth catching in the act. **Do not
+strip the debug code yet** even though Priority 1 went green; the strip is the
+only diagnostic surface the Oppo has and two of those four are unexplained
+failures on it.
+
+### Two standing instructions from the user
+
+- **One instruction at a time.** Not options, not "if X then Y". Literal paths
+  for the machine they are on — the Beelink/kiosk user folder is
+  `Yap Family Dashboard`, this PC's is `user`.
+- **Evidence before theories, and check the instrument before trusting the
+  evidence.** Sessions 20-23 each lost time to an instrument rather than a fault.
+
+---
+
 ## Session 23 outcomes (2026-07-26)
 
 ### Priority 1 is CLOSED — all four Android tests pass on the Oppo
@@ -104,6 +170,77 @@ the phone waiting for buttons.
 ⚠️ **Separately worth measuring: why is it 5s and not the ~2s of session 20?** The
 strip prints `token ok in Xms` and `connect: ok in Xms`. If the connect has
 regressed, fixing that shrinks the gap for real rather than papering it. Not done.
+
+### Bark can recall a delivered push — a "settled fact" that was wrong
+
+⚠️ **Sessions 21 and 22 recorded that a delivered Critical Alert cannot be
+recalled "because we don't control Bark". Bark exposes exactly that control.**
+The claim was written into TODO.md, `streamVideo.js` and `calendar_backend.py`,
+and was load-bearing in the suppression design argument. All three are corrected.
+
+Bark's `id` parameter: a later push with the **same id replaces** the delivered
+notification. `id` + `delete=1` removes it entirely (needs Background App Refresh).
+Requires Bark v1.5.2 / bark-server v2.2.5+.
+
+**Tested end to end on Kath's phone, 2026-07-26:**
+
+| sent | result |
+|---|---|
+| ring push, `level=critical call=1 id=misscall-test` | rang continuously |
+| same `id`, `title='Missed call' level=passive`, 10s later | **one** notification, replaced, **and the ring stopped** |
+
+The ring stopping is the bigger find and is **not yet used anywhere**: it means a
+stray Bark ring over a live call could be killed remotely instead of muting the
+call until someone swipes it. That is the session-21 audio-session bug, and this
+is a possible fix for it. Not attempted.
+
+⚠️ **The suppression design was deliberately NOT changed.** Recall is a repair,
+not a licence to ring first and cancel later: it costs a second round trip to a
+third-party relay, and the failure it would have to cover is a Critical Alert
+holding the iOS audio session and muting a live call. Hold-and-wait-for-evidence
+still wins. Don't re-litigate this from the recall finding alone.
+
+To re-run the test, the Bark key is recoverable from this repo's own git history
+(`git show dd498d4`, `git show e66e771` — 22 chars, starts `hMct2EY`). ⚠️ In
+PowerShell, `(...)[0]` on a single string indexes its **characters** — wrap the
+pipeline in `@(...)` or you send a one-character device key and Bark replies with
+a misleading `failed to get [h] device token`.
+
+### Missed-call notifications (new, both platforms, needs testing)
+
+Reported: nothing on Android when a call is missed, and on iOS the Bark ring just
+sits there — two stacked criticals reading "Yap Family calling / Tap to answer",
+54 minutes and 1 hour old, both offering to answer calls that were long over.
+
+**iOS — kiosk `8209352`, pushed and DEPLOYED to Vercel.** Ring push now carries
+`id: yapcall-<callId>`; `notifyCalleeMissed()` pushes again on that id with
+"Missed call / Yap Family called at <time>", passive, no `call=1`, and **no
+`url`** (the ring push deep-links into the call, and tapping a missed-call note
+must not try to join a dead one).
+
+⚠️ **`stopBackendRing()` must run FIRST, and the order is not cosmetic.** The
+backend re-evaluates the held push against the phone's heartbeats and
+deliberately "rings late" when they stop — and cancelling from the kiosk is what
+stops them. Send the note first and the late ring lands on top of it, putting
+"Yap Family calling" back on the lock screen for a call that is over, which is
+the exact bug being fixed.
+
+**Android — companion `f746e73`, pushed, needs the build.** New
+`src/missedCall.js`, posted from the one place in `CallOverlay` that already
+detects a call screen going away, and posted **before** `returnToAndroidHome()`
+backgrounds the app. Own notification channel so it cannot ring.
+`POST_NOTIFICATIONS` added to the Android permission request (required on 13+).
+`trigger: { channelId }` is the immediate-delivery form that names a channel —
+checked against the Expo SDK 56 docs, not assumed.
+
+**"Missed" is decided by elimination on both sides**: answered if anyone joined
+or Accept was pressed, declined on either decline path, otherwise it rang out. A
+decline produces nothing — they saw it and said no.
+
+⚠️ expo-notifications returns to the companion after `7873da9` removed it. Not a
+regression of that commit: the removed one fired *while* a call was ringing and
+raced Bark; this one fires only after a call has ended, on the platform Bark
+never touches.
 
 ### Still outstanding from session 22
 
