@@ -204,10 +204,34 @@ function CallOverlay() {
   return <CallDebugStrip calls={calls} identity={identity} />;
 }
 
-// TEMPORARY — see above.
-function CallDebugStrip({ calls, identity }) {
+// TEMPORARY — seconds since this mounted, ticking.
+//
+// `attempt=1` is true of a connect that is two seconds in and of one that will
+// never finish, and the placeholder in front of it looks identical either way. A
+// frozen number is the difference between "slow" and "stuck", and it is the one
+// thing the strip could never say. Session 17 lost a cycle to exactly this
+// ambiguity on the join; this is the same fix on the connect.
+function WaitedSeconds() {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const t0 = Date.now();
+    const id = setInterval(() => setSecs(Math.round((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <>{secs}</>;
+}
+
+// TEMPORARY — the debugLog tail, shared by both strips.
+function DebugLogLines() {
   const [logLines, setLogLines] = useState(getDebugLines);
   useEffect(() => onDebugLog(setLogLines), []);
+  return logLines.map(line => (
+    <Text key={line} style={styles.debugText}>{line}</Text>
+  ));
+}
+
+// TEMPORARY — see above.
+function CallDebugStrip({ calls, identity }) {
   if (!SHOW_CALL_DEBUG) return null;
   return (
     <View style={styles.debugStrip} pointerEvents="none">
@@ -220,9 +244,7 @@ function CallDebugStrip({ calls, identity }) {
       </Text>
       {/* Survives the call ending, so a hangup failure is still readable after
           the call screen has gone. */}
-      {logLines.map(line => (
-        <Text key={line} style={styles.debugText}>{line}</Text>
-      ))}
+      <DebugLogLines />
     </View>
   );
 }
@@ -489,8 +511,11 @@ function StreamWrapper({ children }) {
         SHOW_CALL_DEBUG && (
           <View style={styles.debugStrip} pointerEvents="none">
             <Text style={styles.debugText}>
-              no client · me={identity ?? 'none'} · readyClient={readyClient ? 'yes' : 'no'} · attempt={retryCount + 1}
+              no client · me={identity ?? 'none'} · readyClient={readyClient ? 'yes' : 'no'} · attempt={retryCount + 1} · waited=<WaitedSeconds />s
             </Text>
+            {/* The connect phases land here too — a strip that shows `connect: start`
+                and then nothing has told you where it stopped. */}
+            <DebugLogLines />
           </View>
         )
       )}
