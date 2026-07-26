@@ -1,70 +1,201 @@
 # yap-family-companion — Session Handoff
 
-## Session 21 kickoff prompt
+## Session 22 kickoff prompt
 
-**Calling is close. Two functional gaps left, and a debug strip to remove.**
+**Every fix from session 21 is verified on device. Two new fixes are pushed and
+untested, and the debug code is ready to come out.**
 
-Read this file and the memory index first. Companion `main` at `c1d92d8`, pushed.
-Kiosk `main` at `f6fef51`, untouched this session.
+Read this file and the memory index first.
+Companion `main` at `cd45317`. Kiosk `main` at `9c925c0` (kiosk **and** the Fly
+backend — `calendar_backend.py` lives in the kiosk repo).
 
-Session 20 killed the bug this file was organised around: **"iOS call 2 receives
-nothing" is not true.** It was never a media-state failure. Do not re-open it —
-see the outcomes below for the evidence.
+Session 21 was a measurement session and it moved a lot. Three long-standing
+"facts" turned out to be wrong, so check the outcomes below before acting on any
+assumption you inherit.
 
-### Priority 1 — verify `c1d92d8` on both phones
+### Priority 1 — verify the two untested fixes
 
-Five fixes are pushed and **none has been tested**. Build Android first (fast
-loop), then iOS.
+Both need an **iOS build** and a **Vercel deploy + Fly deploy**.
 
-1. **Resume no longer eats live calls** (`c1d92d8`). Leave the phone idle >30s,
-   then call it. Strip must read `resume: 48s bg, keeping client (calls=1)` and
-   the ring screen must appear. Previously read `resume: reconnecting after 48s
-   bg` and the call vanished.
-2. **Repeat Bark tap** (`c2eb17d`, iOS only). Second call: Bark and the call
-   screen appear together — tap **Bark**. Accept/Decline must appear in ~2s, not
-   15–25s.
-3. **Camera faces the caller** (`c2eb17d`). Strip logs `cam front re-asserted`.
-4. **Mic track detail** (`f4432c6`) — `mic ok … status=enabled [live muted=false
-   enabled=true]`. Confirmed good on Android; unverified on iOS.
-5. **Token/connect timeouts** (`42a0155`).
+1. **Video bitrate ramp (`a345bb3`, phone).** May already have been built and
+   tested at the end of session 21 — check with the user before re-testing.
+   `call.updatePublishOptions({ dangerouslySetStartBitrateFactor: 0.5 })` before
+   `join()`. Expect the kiosk's first `[rx]` sample at +6s to read ~30fps instead
+   of 12fps. The strip prints `publish: start bitrate x0.5` so "the option never
+   applied" and "the option didn't help" cannot be confused.
+2. **Bark push suppression (`cd45317` phone, `9c925c0` kiosk + backend).**
+   ⚠️ Needs `flyctl deploy` for the backend as well as a Vercel deploy — the new
+   `/api/ring/*` endpoints are in `calendar_backend.py`.
 
-Test protocol that actually produces readable evidence:
-- **Force-kill first** — the `#N` counter is per process and resets only then.
-- **Stay in the call past 15 seconds.** Two lines are written on a timer, at +6s
-  and +15s (`settled`). Every misreading in session 20 came from a trace that had
-  stopped at ~1.1s.
-- On Android the app exits to the launcher when a call ends; **reopen it** (don't
-  kill) to read the strip.
-- Check the `#N` prefix matches the build you think you installed.
+   Test it in both directions, and the second one matters more:
+   - **App already open** → call → **no Bark push at all**, ring screen only.
+     Kiosk console reads `[bark] held by backend`; Fly logs read
+     `[ring] …: suppressed, phone is ringing on screen`. Answer from the app
+     screen; audio must work both ways (this is the whole point).
+   - **App force-killed / phone asleep** → call → **Bark must still ring**,
+     ~1.2s later than before. This is the one that must never regress; a missed
+     call is far worse than a redundant banner.
+   - **Backend down** (stop the Fly machine) → call → Bark still rings
+     immediately via the kiosk's direct fallback.
 
-### Priority 2 — the iPhone's video reaching the kiosk
+### Priority 2 — strip the debug code
 
-The only functional complaint still standing. The phone's side is provably clean:
-`me pub=AV`, and both `settled` snapshots show the kiosk's own tracks arriving
-`live muted=false` in the other direction. So the link works and the phone
-publishes; the problem is kiosk-side receive or bandwidth. **This needs the kiosk
-console, not the phone strip** — nothing on the phone can narrow it further.
+Calling is now signed off on iOS apart from the two items above. Remove:
+- `src/callTrace.js`, `src/debugLog.js`, and their calls
+- `App.js`: `SHOW_CALL_DEBUG`, `BUILD_TAG`, `CallDebugStrip`, `WaitedSeconds`,
+  `DebugLogLines`, `styles.debugStrip`, the no-client strip
+- `streamClient.js`: the `connect:` / `token ok` / `[sdk]` lines and `sdkLogger`
+- `src/services/callReceiveTrace.js` on the kiosk, and its call in
+  `VideoCallOverlay.jsx`
+- kiosk `IncomingCallOverlay.jsx` `[IncomingCall]` logs, and
+  `VideoCallOverlay.jsx`'s `call.on('all')` + `[call] poll —` line
 
-### Priority 3 — the ~2s ring delay on Android (optional)
+**Keep:** `withTimeout` around `join()`, the kiosk's rejection poll itself,
+`[call] watching this call:`, the kiosk `[mic]`/`[cam]` lines, `[bark]`/`[ring]`
+lines, `src/acceptState.js`, `src/publishTuning.js`, `src/ringHeartbeat.js`.
 
-Measured, understood, not a bug: the app kills its own process when a call ends
-(`returnToAndroidHome` → `exitApp`, session 18, deliberate), so **every** incoming
-call is a cold start. `connect: ok in 1637–2252ms` on every call, of which the
-token fetch is **1050–1559ms** — against **29ms** measured from a desk PC, so that
-is the phone's radio. Caching the token in AsyncStorage would remove ~1.2s of it;
-a stale cached token must fall back to a fresh fetch rather than failing the
-connect. Worth doing only if the delay bothers the family.
+⚠️ Don't strip until Priority 1 passes — the strip is still the only diagnostic
+surface either phone has.
 
-### Priority 4 — retest decline, then strip the debug code
+### Priority 3 — the leftovers
 
-Decline was reported broken on Android this session (`kiosk keeps ringing`) but
-was never retested after the client and publish paths were fixed underneath it.
-Retest before investigating: the existing `reject ok` / `endCall ok` / `FAILED`
-lines will name it.
+- **Kiosk never drops finished calls.** `useCalls()` climbed 1 → 2 → 3 → 4 across
+  one session. Real, and untouched. The byte counters said it was NOT what
+  starved the slow calls, so it is a tidiness/leak issue, not the video bug.
+- **Kiosk calls `join()` twice** on one call object (error suppressed).
+- Beelink music server down ⇒ `24a7119`'s call-time audio-output switch fails
+  (`localhost:5004/audio-output` ERR_CONNECTION_REFUSED in every console dump).
+- Android has not been rebuilt since `43a9261`. Everything since — including the
+  accept guard and the SDK logger — is **unverified on Android**.
+- Retire Yap Dad Companion (`..\yap-dad-companion`).
 
-Then remove the debug code — full list in the cleanup section below. Keep
-`withTimeout` around `join()`, the kiosk's rejection poll, `[call] watching this
-call:`, and the kiosk `[mic]` lines.
+---
+
+## Session 21 outcomes (2026-07-26)
+
+### Three inherited "facts" that were wrong
+
+1. **"iOS second calls are broken."** No. A *first* call failed and a *second*
+   call worked, in the same session. The real variable is whether the SDK's
+   `doJoin` succeeds on its first attempt — it retries intermittently, which
+   session 20 had already noted but nobody had connected to the symptom. Stop
+   treating call ordinal as the variable.
+2. **"The iPhone's video reaching the kiosk is a kiosk-side receive or bandwidth
+   problem."** No. `rtt=4ms`, audio flowing normally on the same connection,
+   subscriptions correct. The kiosk was fine; the phone was publishing at
+   300kbps.
+3. **"The phone's audio is dead."** No — twice. Once it was the instrument (see
+   below), and once it was a quiet room: Opus sends almost nothing on silence, so
+   `bytes=100` flat meant nobody was talking. Confirmed by talking for 40s:
+   `Δ130kbps` steady, `jbuf≈100ms`.
+
+### The headline finds
+
+**Bark's ring holds the iOS audio session and mutes the call BOTH WAYS.**
+Controlled comparison, same call, one variable:
+
+| answered via | Bark after | audio |
+|---|---|---|
+| tapping Bark | dismissed by the tap | ✅ both ways |
+| the app's own screen | still ringing | ❌ dead both ways, `int=A-` |
+
+Swiping the notification away restored audio instantly at 65kbps. `int=A-` is
+AUDIO in `interruptedTracks` — an OS-level audio-session interruption. This is
+the real explanation for "sound is 5/10 seconds delayed", reported since the
+start of the session and blamed on the network for weeks. Fixed by `cd45317` /
+`9c925c0`.
+
+**The video "slowness" is a 20-30 second bitrate ramp, not a steady state.**
+
+```
++11s  Δ12.8fps  Δ292kbps   jbuf=88ms
++21s  Δ30.4fps  Δ778kbps
++31s  Δ31.2fps  Δ1722kbps  jbuf=51ms
++46s  Δ30.0fps  Δ5410kbps  jbuf=2ms
+```
+
+The first sample is **292kbps** and the SDK's documented default start bitrate is
+**300kbps**. Every call began at 300kbps and rediscovered a link that sustains
+5.4Mbps at rtt=4ms. Framerate is what collapsed because the resolution stays
+pinned at 720x1280 the whole way up — 2.8fps is what 720x1280 looks like at
+185kbps. Fixed by `a345bb3`. ⚠️ Dropping the resolution was proposed and
+**rejected** — it trades a permanent quality loss for a transient problem.
+
+**The SDK logger had never worked.** `new StreamVideoClient({apiKey, logLevel,
+logger})` — the constructor reads options from `apiKeyOrArgs.options`
+(index.es.js:17880), so top-level `logLevel`/`logger` were ignored and every SDK
+warning went to a console neither phone can produce. `138c24a` had produced
+exactly zero lines. Nesting them under `options` (`1a1e36e`) fixed it, and
+`[sdk]` lines now appear on the strip. **The absence of `[sdk] Failed to join
+call` was nearly read as evidence the join didn't throw** — a fourth wrong theory
+built on a broken instrument, caught only by reading the constructor.
+
+### Verified on device (build `b24bb7b`)
+
+| Fix | Evidence |
+|---|---|
+| `c1d92d8` resume | `resume: 73s bg, keeping client (calls=1)`, ring screen appeared |
+| `c2eb17d` repeat Bark tap | `deeplink: already have … (ringing)` |
+| `c2eb17d` camera front | `cam front re-asserted 2813ms` |
+| `f4432c6` mic detail | `status=enabled [live muted=false enabled=true]` |
+| `42a0155` token/connect | `token ok in 101ms`, `connect: ok in 631ms` |
+| `b24bb7b` accept guard | accepted from the app screen, `joined ok in 2448ms`, no flap |
+| `1a1e36e` SDK logger | `[sdk] [SfuStatsReporter]: …` — first ever `[sdk]` line |
+
+### `b24bb7b` — the bug behind "if she taps Accept in the app, the call fails"
+
+`join()` retries internally and a failed attempt **restores the previous calling
+state**, so a joining call drops back to RINGING (measured: `joining +13ms` →
+`ringing +6575ms`). `CallOverlay` matched JOINING/JOINED as active and
+RINGING/IDLE as incoming, so the flap swapped `ActiveCallScreen` back to
+`IncomingCallScreen` — a **remount**, which reset the `busy` flag and re-armed
+Accept on a call already mid-join. Tapping it called `join()` twice and the SDK
+threw `Illegal State: call.join() shall be called only once`, killing a call that
+would have succeeded.
+
+Also found in the same trace: **RECONNECTING matched neither filter**, so the
+overlay rendered nothing at all — the call screen vanished mid-answer and the
+app's Home tab appeared. That is almost certainly the "sometimes it doesn't
+connect at all" report. RECONNECTING and MIGRATING are now active states.
+
+### Instrument lessons (this keeps happening — read this)
+
+Three separate wrong conclusions this session, all from the instrument:
+
+1. **`[sdk]` silence** meant the logger was never installed, not that the SDK
+   logged nothing.
+2. **`NO inbound-rtp streams` at +6s/+15s** meant the sampling window closed
+   before the phone published, not that the call was dead. Those two timings were
+   copied from the phone's `callTrace.js`, where they bracket a ~1s join.
+   `callReceiveTrace.js` now samples every 5s to 60s.
+3. **"The phone's audio is dead"** came from deltas keyed on array position while
+   the SFU had replaced the audio SSRC — the tell was `lost` going 14 → 0, and a
+   cumulative counter cannot decrease. Now keyed on SSRC, and the SSRC is printed.
+
+Also: **30fps decoded means smooth, not current.** A stream can decode a perfect
+30fps while every frame is seconds old. `jitterBufferDelay` is what measures
+lateness, and it was missing until `49ceb70`.
+
+### The Bark suppression design, and why it is shaped this way
+
+A second opinion argued for the opposite design — suppress the app's own ring
+screen and make Bark the exclusive ingress. **Rejected**, for reasons worth
+keeping:
+- Bark's notification has exactly one action, so Bark-only ingress leaves **no
+  way to decline** a call.
+- It requires Bark-tap to mean auto-answer, i.e. an accidental tap on a lock
+  screen opens a live camera and microphone into the room.
+- It preserves the extra tap in every case, which was the original complaint.
+
+Two of its technical points **were** decisive and are settled:
+- **Stream presence is unsafe as a suppression signal.** iOS freezes a
+  backgrounded app without closing its socket, so presence stays stale for tens
+  of seconds. Independently confirmed here: the coordinator WS died with code
+  1006 only well after backgrounding.
+- **A delivered Critical Alert cannot be recalled** without the host app's
+  cooperation, and we don't control Bark.
+
+Hence: hold, wait for positive evidence, and fail towards ringing.
 
 ---
 
@@ -873,17 +1004,25 @@ causes of the earlier failures.
       call 1 on both platforms: `pub=AV sub=av`, nothing muted. The symptoms behind
       it were the five bugs listed in the session 20 outcomes.
 - [x] ~~Call-screen placeholder on Android~~ (`bbf55b7`) — confirmed session 20
-- [ ] 🔴 **Verify `c1d92d8` on both phones** — five fixes pushed, none tested.
-      **Session 21 Priority 1.**
-- [ ] 🔴 **iPhone video reaching the kiosk is slow/unusable.** The phone publishes
-      (`me pub=AV`) and receives the kiosk's tracks live, so this is kiosk-side.
-      Needs the kiosk console. **Session 21 Priority 2.**
+- [x] ~~Verify `c1d92d8` on both phones~~ — **all five VERIFIED on iOS** (session
+      21, build `b24bb7b`). ⚠️ Still unverified on **Android**, which has not been
+      rebuilt since `43a9261`.
+- [x] ~~🔴 iPhone video reaching the kiosk is slow/unusable~~ — **root-caused
+      (session 21): a 20-30s bitrate ramp from a 300kbps start**, not kiosk-side
+      at all (`rtt=4ms`, audio fine on the same connection). Fixed `a345bb3`,
+      needs a build to verify.
+- [ ] 🔴 **Verify `a345bb3` (bitrate ramp) and `cd45317`/`9c925c0` (Bark
+      suppression)** — pushed, untested. **Session 22 Priority 1.** The Bark one
+      needs a **Fly deploy** as well as Vercel.
 - [ ] **Retest decline on Android** — reported broken this session, never retested
       after the client and publish paths were fixed underneath it
 - [ ] ~2s ring delay on Android: every call is a cold start because the app exits
       after each one; ~1.2s of it is the token fetch and is cacheable (optional)
-- [ ] Bark keeps ringing after the call is answered — `call: '1'` rings until
-      dismissed on the phone and the kiosk cannot cancel a Bark push
+- [x] ~~Bark keeps ringing after the call is answered~~ — far worse than a
+      lingering banner: the ring **holds the iOS audio session and mutes the call
+      in both directions** (`int=A-`; swiping it away restored audio instantly).
+      Addressed by not sending the push at all when the app is already showing the
+      call (`cd45317`/`9c925c0`). Unverified.
 - [ ] Kiosk calls `join()` twice on one call object (error suppressed, cause unknown)
 - [ ] Kiosk client never drops finished calls — `useCalls()` count climbs all session
 - [ ] Beelink music server down ⇒ `24a7119`'s call-time audio-output switch fails
