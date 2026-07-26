@@ -5,19 +5,43 @@
 **Android calling is verified. Everything open is a test of code already written
 and already pushed.**
 
-Read this file and the memory index first. Companion `main` at `f746e73`, kiosk
-`main` at `8209352` — **deployed to Vercel and hard-refreshed on the Beelink**.
+Read this file and the memory index first. Companion `main` at `8e14f30`, kiosk
+`main` at `040896d` — **deployed to Vercel and hard-refreshed on the Beelink**.
 The Fly backend is deployed; session 23 changed only a comment in it, so it needs
 nothing.
+
+⚠️ **`git fetch --all` in BOTH repos before searching for anything.** Session 24
+searched all three repos for the quiet-hours feature — git-ignored files included
+— reported twice that it did not exist, and was wrong: the kiosk had **9 unpulled
+commits** carrying it. A thorough search of a stale checkout and a genuinely
+absent feature return the identical "no matches", and the thoroughness makes the
+wrong answer more convincing. The companion gets pulled by habit; the kiosk
+drifts.
+
+⚠️ **QUIET HOURS BLOCK ALL CALL TESTING, 21:00–07:00 SGT.** Kiosk
+`src/services/quietHours.js`, added in the commits above. Outgoing calls grey out
+and do nothing; incoming calls are ignored silently. **There is no override and
+there will never be one** — explicitly decided, because a debug bypass could be
+left on. Everything in Priorities 1–3 needs the kiosk to place a call, so
+**check the clock before planning a test session** — session 24 got as far as
+"press Accept now" at 23:28 before discovering this.
+
+⚠️ **Two unrelated features are both called "missed call".** The phone
+notification (Priorities 1 and 2) and the kiosk's `MissedCallBanner`, which logs
+calls dropped during quiet hours to `localStorage`. Evidence about one says
+nothing about the other.
 
 ⚠️ `gh` CLI is **not installed** on this PC. Builds are dispatched from
 `https://github.com/aslyap/yap-family-companion/actions` in a browser and their
 status cannot be polled from the session — ask, never assume.
 
-### Priority 1 — install the Android build of `f746e73` and test three things
+### Priority 1 — test three things on the Android build (INSTALLED)
 
-The build was **running when session 23 ended**. It carries two untested changes.
-Confirm the strip reads `b=f746e73` before believing any reading.
+✅ **Session 24: the build is installed on the Oppo and the strip reads
+`b=8e14f30`.** That is run #82, green, and `8e14f30` is docs-only on top of
+`f746e73`, so both untested changes are present. Instrument checked — no need to
+re-install or re-confirm the tag. The three tests below were **not run**: quiet
+hours (see above) made it impossible to place a call.
 
 1. **Accept/Decline appear instantly.** Call the Oppo. The call screen must come
    up with working buttons, **no spinner where the buttons go**. Press Accept
@@ -35,7 +59,16 @@ Confirm the strip reads `b=f746e73` before believing any reading.
 
 ### Priority 2 — missed call on iOS
 
-Kiosk-side and already live, so this needs no build. Call Kath's phone, let it
+Kiosk-side and already live, so this needs no build.
+
+✅ **Still valid on kiosk `040896d`, checked in session 24.** The quiet-hours
+commits touched `VideoCallOverlay.jsx` and `IncomingCallOverlay.jsx`, but the
+diff against `8209352` adds only music silencing — the `stopBackendRing()` →
+`notifyCalleeMissed()` block that rewrites the ring as a missed call is
+untouched, and the `IncomingCallOverlay` change is the kiosk *receiving*, not the
+phone.
+
+Call Kath's phone, let it
 ring out, and confirm the "Yap Family calling / Tap to answer" critical alert is
 **replaced in place** by "Missed call" — one notification, not two. This is the
 screenshot that started it: two stacked alerts, 54 minutes and 1 hour old, both
