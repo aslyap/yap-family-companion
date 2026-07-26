@@ -69,13 +69,38 @@ the Oppo has.
 ### Priority 4 — the leftovers
 
 - **Target Resolution is 2160p** on the `default` call type. Every capture reading
-  is `2160x3840` while the call actually publishes `720x1280`, so the phone is
-  capturing 4K and throwing most of it away. Raised in session 22 and deliberately
-  **not** changed — it was not the variable under test. ⚠️ The 720p publish is
-  currently an *accident*: `selectDirection`'s `applyConstraints({facingMode})`
-  passes no width/height, and react-native-webrtc's `normalizeMediaConstraints`
-  defaults them to 1280x720. Strip those `selectDirection` calls (Priority 3) and
-  the publish may jump to 4K. **Measure before and after.**
+  is `2160x3840` while the call actually publishes `720x1280`, so the phone
+  captures 4K and throws most of it away. Raised in session 22 and deliberately
+  **not** changed — it was not the variable under test.
+
+  ⚠️ **The 720p publish is an accident.** `selectDirection`'s
+  `applyConstraints({facingMode})` passes no width/height, and
+  react-native-webrtc's `normalizeMediaConstraints` defaults them to 1280x720.
+  Strip those `selectDirection` calls (Priority 3) and the publish may jump to
+  4K on its own. **Measure before and after, and don't strip and ship in one
+  step.**
+
+  **Recommendation: 1920x1080, set deliberately** in the kiosk's
+  `settings_override`. Reasoning, so it isn't re-argued from scratch:
+  - The kiosk monitor is **3840x2160**, and the phone's video is full-screen. The
+    video is portrait, so it pillarboxes and only the monitor's *vertical* pixels
+    matter — 2160 of them. So unlike a 1080p screen, this display genuinely could
+    consume a 2160-tall source. The screen is not the limit.
+  - The network probably is, but **the ceiling has never been measured**. Session
+    21 read `Δ5410kbps` at +46s and it was **still climbing** — that is where the
+    ramp had reached, not a plateau. 4K30 wants ~20–25Mbps on H.264.
+  - The downside of over-reaching is not softness, it is a slideshow: session 21's
+    whole "slow video" bug was resolution outrunning bitrate (2.8fps at
+    720x1280/185kbps). `publishTuning.js` already starts at half the max bitrate
+    by design, so the cliff is closer than it looks.
+  - **Kath overseas is the real use case** and will never have 20Mbps. Whatever is
+    set here applies to every call.
+  - The phone pays in heat — iOS throttles capture framerate under thermal
+    pressure, and 4K encode on a video call is what triggers it.
+
+  So: 1080p is a real gain over today's accidental 720p with no cliff. **2160p
+  only becomes defensible after a long call shows the bitrate plateauing well
+  above 20Mbps** — measure it from the kiosk's `[rx]` samples before touching it.
 - **Kiosk never drops finished calls.** `useCalls()` climbed 1 → 2 → 3 → 4 across
   one session. Real, and untouched. The byte counters said it was NOT what
   starved the slow calls, so it is a tidiness/leak issue, not the video bug.
