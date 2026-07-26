@@ -21,6 +21,43 @@ function withTimeout(promise, ms, label) {
   });
 }
 
+// Report what the camera hardware is ACTUALLY doing, not what the SDK thinks.
+//
+// `selectDirection('front')` resolved twice on build 07a124a — `camera ok` and
+// `cam front re-asserted`, no error — and the iPhone still came up on the back
+// camera. Needing TWO presses of the rotate button to turn it round is the tell:
+// flip() toggles from `state.direction`, so a first press that does nothing means
+// the SDK's tracked direction was already 'front' while the hardware was on the
+// back. That is a state/hardware divergence, and the only way to tell which of the
+// two is lying is to read the track itself.
+//
+// getSettings() is native truth on iOS: VideoCaptureController returns facingMode
+// from its own `usingFrontCamera`, plus the real deviceId and capture dimensions.
+// Printed alongside the SDK's `state.direction` so the two can be compared
+// directly on the strip. Remove with the rest of the debug code.
+function camState(call, n, label) {
+  try {
+    const track = call.camera.state.mediaStream?.getVideoTracks?.()[0];
+    if (!track) {
+      debugLog(`#${n} cam@${label} dir=${call.camera.state.direction} NO TRACK`);
+      return;
+    }
+    const s = track.getSettings?.() ?? {};
+    // deviceId is a long UUID and the strip is one phone wide — the tail is enough
+    // to tell two cameras apart, which is all it is being used for.
+    const dev = s.deviceId ? String(s.deviceId).slice(-6) : '?';
+    debugLog(
+      `#${n} cam@${label} dir=${call.camera.state.direction} fm=${s.facingMode} ` +
+      `dev=…${dev} ${s.width}x${s.height}`,
+    );
+  } catch (e) {
+    // Never silent: a throw here and a camera that simply never reports would look
+    // identical on the strip, which is the exact trap that cost session 21.
+    console.warn('[IncomingCall] camState failed:', e);
+    debugLog(`#${n} cam@${label} READ FAILED: ${e?.message ?? e}`);
+  }
+}
+
 // Full-screen incoming call UI shown when the kiosk "Call Mum/Dad" button rings this device.
 export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineStart }) {
   const call = useCall();
@@ -172,8 +209,12 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
         // Kath and pointed it at the floor. selectDirection is absolute: front is front
         // whatever the call started on, on either platform.
         call.camera.enable()
+          .then(() => camState(call, n, 'enabled'))
           .then(() => call.camera.selectDirection('front'))
-          .then(() => debugLog(`#${n} camera ok ${since()}`))
+          .then(() => {
+            camState(call, n, 'sel1');
+            debugLog(`#${n} camera ok ${since()}`);
+          })
           .catch(e => {
             console.warn('[IncomingCall] camera.enable/selectDirection failed:', e);
             debugLog(`#${n} camera FAILED ${since()}: ${e?.message ?? e}`);
@@ -244,8 +285,19 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       // again, which is the regression reported after that commit. join() having
       // returned means applyDeviceConfig has run, so this is the last word.
       // Idempotent when the camera is already front-facing.
+      camState(call, n, 'preRe');
       call.camera.selectDirection('front')
-        .then(() => debugLog(`#${n} cam front re-asserted ${Date.now() - t0}ms`))
+        .then(() => {
+          camState(call, n, 'postRe');
+          debugLog(`#${n} cam front re-asserted ${Date.now() - t0}ms`);
+          // The settled reading. applyDeviceConfig, publishing and the SFU's own
+          // track negotiation all finish after join() returns, and any of them
+          // could restart the capture session — a direction that is correct at
+          // +2.7s and wrong at +10s is a different bug from one that was never
+          // applied. Timed, not change-triggered: if nothing changes, nothing
+          // would be logged, and silence would read the same as not-watching.
+          setTimeout(() => camState(call, n, 'settled10s'), 10000);
+        })
         .catch(e => {
           console.warn('[IncomingCall] post-join selectDirection failed:', e);
           debugLog(`#${n} cam re-assert FAILED: ${e?.message ?? e}`);
