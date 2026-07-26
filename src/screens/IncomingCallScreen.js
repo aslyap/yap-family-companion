@@ -6,6 +6,7 @@ import { debugLog } from '../debugLog';
 import { callSeq, traceCall } from '../callTrace';
 import { markAccepting, isAccepting, clearAccepting } from '../acceptState';
 import { applyPublishTuning } from '../publishTuning';
+import { startRingHeartbeat, stopRing } from '../ringHeartbeat';
 
 // A hung call.join() must not leave Accept spinning forever with no error (the
 // iPhone symptom). Time it out so a hang becomes a visible failure that resets
@@ -64,6 +65,21 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     if (busy) Vibration.cancel();
   }, [busy]);
 
+  // Tell the backend this call is already on screen, so the Bark push is never
+  // sent — it would hold the iOS audio session and mute the call both ways.
+  //
+  // Bound to this screen being MOUNTED, which is the exact condition the backend
+  // needs evidence of. If the app dies, is backgrounded, or loses its client, the
+  // beats stop by construction and the backend rings late rather than never.
+  useEffect(() => {
+    if (!call?.cid) return;
+    return startRingHeartbeat(call.cid, () => ({
+      state: call.state.callingState,
+      // A mounted screen over a dead socket must not suppress the alert.
+      healthy: !!call.streamClient?._hasConnectionID?.(),
+    }));
+  }, [call]);
+
   // Hide once the call has actually progressed — not merely because it isn't
   // RINGING. A call recovered by queryCalls() after a cold start is IDLE (the
   // live `call.ring` event fired while the app was killed), and blanking on
@@ -89,6 +105,12 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       return;
     }
     markAccepting(call?.cid);
+    // Terminal signal, and it is required, not tidy-up: this screen unmounts the
+    // moment the state reaches JOINING, so the heartbeat stops by itself — and
+    // without this the backend would read that silence as "the phone died" and
+    // fire Bark INTO the answered call, which is the exact audio-killing state
+    // this whole mechanism exists to prevent.
+    stopRing(call?.cid, 'answered');
     setBusy('accepting');
     const t0 = Date.now();
     // Which call of this process is this? On iOS only the first one after launch
@@ -241,6 +263,9 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
   async function decline() {
     if (busy) return;
     setBusy('declining');
+    // Declined calls must stop the watch too, or the backend rings a phone that
+    // has just said no.
+    stopRing(call?.cid, 'declined');
     onDeclineStart?.();
     try {
       // reject() explicitly, rather than leave({ reject: true }).
