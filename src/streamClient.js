@@ -137,8 +137,19 @@ export async function getOrCreateClient() {
       // neither phone can produce console logs, so it has been invisible. After two
       // failures the SDK also sets `migrating_from` and moves to a different SFU,
       // which is a large behavioural change nobody knew was happening.
-      logLevel: 'warn',
-      logger: sdkLogger,
+      //
+      // These MUST be nested under `options`. The constructor reads
+      // `typeof apiKeyOrArgs === 'string' ? opts : apiKeyOrArgs.options`
+      // (index.es.js:17880), so passing an object puts every client option behind
+      // `.options` — and top-level `logLevel`/`logger` were silently ignored.
+      // `rootLogger` then fell back to `logToConsole`, i.e. straight to a console
+      // neither phone can produce. This instrumentation has never once emitted a
+      // line, which is exactly why the reason for the join retries is still
+      // unknown: `[sdk]` being absent was read as "the SDK logged nothing".
+      options: {
+        logLevel: 'warn',
+        logger: sdkLogger,
+      },
     });
     try {
       await withTimeout(
@@ -152,7 +163,7 @@ export async function getOrCreateClient() {
       // Tear down the half-open client. The underlying connectUser cannot be
       // cancelled, so it may still complete later; disconnecting stops it
       // leaving a zombie WebSocket around while the retry builds a fresh client.
-      c.disconnectUser().catch(() => {});
+      c.disconnectUser().catch(e => console.warn('[Stream] disconnect after failed connect failed:', e));
       throw e;
     }
     _client = c;

@@ -36,7 +36,16 @@ export default function ActiveCallScreen({ onLeft }) {
   useEffect(() => {
     if (remotes.length > 0 || !hadRemoteRef.current) return;
     const t = setTimeout(async () => {
-      try { await call.leave(); } catch {}
+      try {
+        await call.leave();
+      } catch (err) {
+        // Not a bare catch: this fires when the kiosk vanished without ending the
+        // call, and a leave() that throws here leaves the call JOINED locally with
+        // the overlay stuck up — indistinguishable from "the kiosk is still there"
+        // unless it is said out loud.
+        console.warn('[call] leave() after remote drop failed:', err);
+        debugLog(`leave after remote drop FAILED: ${err?.message ?? err}`);
+      }
       onLeft();
     }, 2000);
     return () => clearTimeout(t);
