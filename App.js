@@ -387,7 +387,11 @@ function StreamWrapper({ children }) {
       // Fresh object every time: two taps on the same call produce the same URL
       // string, and a plain string in state would not re-render for the second.
       setPendingUrl({ url, at: Date.now() });
-      markCallPending();
+      // Name the call on the cover as well as in the URL: with a cid, the cover
+      // can offer real Accept/Decline buttons during the connect instead of a
+      // spinner (see src/callIntent.js).
+      const cid = /[?&]cid=([^&]+)/.exec(url)?.[1];
+      markCallPending(cid && decodeURIComponent(cid));
     };
     Linking.getInitialURL()
       .then(note)

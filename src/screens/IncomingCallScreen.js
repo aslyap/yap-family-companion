@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Vibration, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCall, useCallStateHooks, CallingState } from '@stream-io/video-react-native-sdk';
@@ -7,6 +7,7 @@ import { callSeq, traceCall } from '../callTrace';
 import { markAccepting, isAccepting, clearAccepting } from '../acceptState';
 import { applyPublishTuning } from '../publishTuning';
 import { startRingHeartbeat, stopRing } from '../ringHeartbeat';
+import { takeCallIntent } from '../callIntent';
 
 // A hung call.join() must not leave Accept spinning forever with no error (the
 // iPhone symptom). Time it out so a hang becomes a visible failure that resets
@@ -116,6 +117,30 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       healthy: !!call.streamClient?._hasConnectionID?.(),
     }));
   }, [call]);
+
+  // Execute a press the user made on IncomingCallPlaceholder, before this screen
+  // — or the client, or the call object — existed. See src/callIntent.js for why
+  // the cover offers real buttons at all.
+  //
+  // useLayoutEffect, not useEffect: this runs in the same commit as the first
+  // render, so the live Accept/Decline buttons never paint for a frame under a
+  // thumb that has already chosen. Both accept() and decline() set `busy`
+  // synchronously before their first await, so the very first painted frame of
+  // this screen already reads "Connecting…"/"Ending…" — continuous with what the
+  // cover was showing.
+  //
+  // Deliberately NOT seeded into the initial `busy` value: `busy` is what both
+  // accept() and decline() check to refuse a double press, so pre-setting it
+  // would make them return immediately and the banked press would be silently
+  // dropped.
+  useLayoutEffect(() => {
+    if (!call?.cid) return;
+    const action = takeCallIntent(call.cid);
+    if (!action) return;
+    debugLog(`intent: ${action} pressed on the cover, running it now`);
+    if (action === 'accept') accept();
+    else decline();
+  }, [call?.cid]);
 
   // Hide once the call has actually progressed — not merely because it isn't
   // RINGING. A call recovered by queryCalls() after a cold start is IDLE (the

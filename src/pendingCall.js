@@ -26,20 +26,35 @@ import { useEffect, useState } from 'react';
 const TTL_MS = 25000;
 
 let pendingSince = null;
+// Which call is arriving, when the signal named it. Android's FCM data message
+// carries `call_cid` and iOS's Bark deep link carries `cid`, so in practice this
+// is known from the first instant. It is what lets the cover show real
+// Accept/Decline buttons rather than a spinner — see src/callIntent.js.
+let pendingCid = null;
 const listeners = new Set();
 
 function notify() {
   listeners.forEach(fn => fn(isCallPending()));
 }
 
-export function markCallPending() {
+export function markCallPending(cid) {
   pendingSince = Date.now();
+  // Never overwrite a known cid with undefined: two signals can raise the cover
+  // for one call (the FCM push and then the live socket), and only one of them
+  // may have named it.
+  if (cid) pendingCid = cid;
   notify();
+}
+
+/** The cid of the arriving call, or null if the signal did not name one. */
+export function getPendingCid() {
+  return isCallPending() ? pendingCid : null;
 }
 
 export function clearCallPending() {
   if (pendingSince === null) return;
   pendingSince = null;
+  pendingCid = null;
   notify();
 }
 
@@ -47,6 +62,7 @@ export function isCallPending() {
   if (pendingSince === null) return false;
   if (Date.now() - pendingSince > TTL_MS) {
     pendingSince = null;
+    pendingCid = null;
     return false;
   }
   return true;

@@ -1,6 +1,124 @@
 # yap-family-companion — Session Handoff
 
-## Session 23 kickoff prompt
+## Session 23 outcomes (2026-07-26)
+
+### Priority 1 is CLOSED — all four Android tests pass on the Oppo
+
+Run on the **installed** APK (`07a124a`), no rebuild. See the correction below:
+TODO had the last Android build wrong by six commits, and a 25-minute build was
+started and cancelled on the strength of it.
+
+| # | Test | Result |
+|---|---|---|
+| 1 | **Decline** ends the kiosk call | ✅ — open since session 18, now closed |
+| 2 | **Cold-start ring** (force-killed, screen off) | ✅ rang, screen came on |
+| 3 | **Accept** from the app's own screen | ✅ connects; **no `b24bb7b` flap** |
+| 4 | **Return home** on hangup | ✅ drops to the Android launcher |
+
+`accept: joined ok in 1453ms` — healthy, faster than iOS's 2448ms, and `t0` is set
+at `IncomingCallScreen.js:152` **before every await in the accept path**, so that
+number covers the whole thing from the button press. Instrument checked.
+
+### Four things seen this session that are NOT explained — read before stripping
+
+None reproduce now, so none were chased. All four are recorded with the reading
+that would settle them, because "cleared up by itself" is not "fixed".
+
+1. **No in-call audio in EITHER direction, Oppo ↔ kiosk.** Reported live, then
+   cleared on its own before a console dump was taken. Both-directions-dead rules
+   out the session-19 kiosk mic alias (one direction) and the Bark audio session
+   (iOS only). ⚠️ **If it recurs, get the kiosk console dump WHILE it is
+   happening** — F12, clear, call, **talk continuously for 40s** (Opus sends
+   almost nothing on silence, so a quiet room reads identically to dead audio),
+   hang up, copy the whole console.
+2. **Stuck on `Connecting…`, never connected.** Screenshotted. Cleared by a
+   **force-close + clear app data**, which points at *persisted* state rather
+   than a code path.
+   ⚠️ **The screenshot was `IncomingCallPlaceholder`, not the accept spinner** —
+   I misread it as the latter at first. Both render "Yap Family / …video call"
+   over a spinner labelled `Connecting…`, which is by design (the cover is a copy
+   of the ring screen's shell) and makes them indistinguishable in a photograph.
+   So this was almost certainly **the client never arriving**, not `join()`
+   hanging. The tells that separate them, for next time: the placeholder has no
+   Accept/Decline buttons at all, and `join()` is time-boxed at 30s
+   (`IncomingCallScreen.js:267`) so a real join hang writes a failure line to the
+   strip at 30s. Neither reading was taken.
+3. **Accept latency varies.** One measured call was 1453ms; others felt long.
+   Consistent with session 20's finding that the SDK's own `doJoin` retries are
+   **intermittent, not per-call** (`joining → ringing → joining → ringing →
+   joining → joined` over 7.3s). Known behaviour, not a new bug.
+4. **Ring sometimes appeared as the heads-up banner only, not the full screen.**
+   Could not be reproduced. Probably Android working as designed: a full-screen
+   intent is only launched full-screen when the device is **locked or screen
+   off**, and demoted to a banner when unlocked and in use.
+   `USE_FULL_SCREEN_INTENT` is declared (`app.json:39`) and the special app
+   access was granted on the Oppo in session 15, so the mechanism is in place.
+   ⚠️ **There are three states, not two** — screen off / on-but-locked /
+   unlocked — plus app-in-foreground as a fourth path that bypasses the
+   notification entirely. If it returns, record **lock state AND whether the app
+   was in front** before touching the phone. Only `unlocked + app in front +
+   banner only + no ring screen` is a real `CallOverlay` bug.
+
+⚠️ **Priority 3 (strip the debug code) is now unblocked by Priority 1 — but do
+not strip yet.** Items 1 and 2 above are unexplained failures on the Oppo, and the
+strip plus the kiosk console are the only diagnostic surfaces that exist. Strip
+after a clean session with no recurrence, not because Priority 1 went green.
+
+### Working Accept/Decline during the connect (new, needs an Android build)
+
+Reported on the Oppo: "the Yap Family screen comes up and the connecting spin
+wheel stays on for about 5 sec — how do we make it go straight to the
+Accept/Reject icons". That spinner is `IncomingCallPlaceholder`, covering the
+token fetch + `connectUser()` + `onRingingCall()` chain. Session 20 measured that
+chain at ~2s; the Oppo is showing ~5s. It is paid on **every** call because the
+app exits after each one.
+
+The cover had no buttons by deliberate design (session 18): no call object yet, so
+they would be dead, and a dead button on an incoming call is worse than none. The
+dead-button premise is right, the conclusion was not — **a press does not have to
+act immediately, it only has to be remembered**. The call is already identified by
+then: Android's FCM data message carries `call_cid`, iOS's Bark deep link carries
+`cid`.
+
+New `src/callIntent.js` banks the press; `IncomingCallScreen` consumes it in a
+`useLayoutEffect` on mount and runs `accept()` or `decline()` immediately. Cover
+now renders the real button row, copied from `IncomingCallScreen`'s styles.
+
+- `useLayoutEffect`, not `useEffect` — same commit as the first render, so live
+  buttons never paint for a frame under a thumb that has already chosen.
+- The intent is **not** seeded into `busy`: `busy` is the double-press guard both
+  `accept()` and `decline()` check, so pre-setting it would silently drop the
+  banked press. Both set `busy` synchronously before their first await, so the
+  first painted frame already reads `Connecting…`.
+- A cid **mismatch** is never applied — that would be a different call, and
+  auto-accepting it opens a camera and mic nobody agreed to. A null cid on the
+  intent (push we could not read) applies to the first call inside the TTL.
+- `stopRing()` fires on a cover decline: plain HTTP to our backend, no Stream
+  client needed, which is why it can run that early.
+
+⚠️ **This does not make decline reach the kiosk any faster.** Rejecting needs a
+connected client, so the kiosk rings for the length of the connect either way.
+What changes is that the user can answer and put the phone down instead of holding
+the phone waiting for buttons.
+
+⚠️ **Separately worth measuring: why is it 5s and not the ~2s of session 20?** The
+strip prints `token ok in Xms` and `connect: ok in Xms`. If the connect has
+regressed, fixing that shrinks the gap for real rather than papering it. Not done.
+
+### Still outstanding from session 22
+
+**Priority 2 — the iOS build.** Not touched this session. A `7873da9` iOS build
+was running when session 22 ended; it still needs installing on Kath's phone and
+confirming that only Bark arrives (answer, hang up, lock the phone immediately,
+call again).
+
+⚠️ **`gh` CLI is not installed on this PC.** Builds must be dispatched from
+`https://github.com/aslyap/yap-family-companion/actions` in a browser, and their
+status cannot be polled from the session.
+
+---
+
+## Session 23 kickoff prompt (completed — see outcomes above)
 
 **iOS calling is finished. Android is the whole job now.**
 
@@ -14,8 +132,14 @@ build that is already pushed. **Do not re-open iOS unless a test says to.**
 
 ### Priority 1 — Android
 
-Android has not been rebuilt since `43a9261`. Everything since is unverified on
-it, which is eight commits' worth of calling changes plus this session's two.
+⚠️ **Corrected session 23: the last Android build was `07a124a`, not `43a9261`**
+(`43a9261` is an ancestor of it). The only code commits after `07a124a` are
+`720afaf` (the `camState()` diagnostic in `IncomingCallScreen`) and `7873da9`
+(both hunks behind `Platform.OS === 'ios'`). **Nothing functional has changed for
+Android since its last build** — the four tests below can be run on the APK
+already on the Oppo. Do not spend 25 minutes rebuilding to test them.
+
+The stale text follows, kept for the reasoning about what to test:
 Bark and `camera_facing` are the only things that don't apply — Bark is iOS-only,
 and Android's camera was never reported wrong (worth one glance anyway now that
 the call type says `front`; it applies to both platforms).

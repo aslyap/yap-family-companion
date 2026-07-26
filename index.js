@@ -93,7 +93,10 @@ if (Platform.OS === 'android') {
       // moment anything in JS knows a call is coming, and the whole point of the
       // flag is to cover the seconds that follow (token fetch, connectUser,
       // onRingingCall) during which App.js would otherwise show its Home tab.
-      markCallPending();
+      // The cid comes along for the ride: it is what lets the cover show working
+      // Accept/Decline buttons during the connect instead of a spinner (see
+      // src/callIntent.js).
+      markCallPending(message.data?.call_cid);
       await firebaseDataHandler(message.data);
     }
   });
@@ -101,7 +104,7 @@ if (Platform.OS === 'android') {
   // push too so a ring is never dropped if the socket is mid-reconnect.
   messaging().onMessage(message => {
     if (isFirebaseStreamVideoMessage(message)) {
-      markCallPending();
+      markCallPending(message.data?.call_cid);
       firebaseDataHandler(message.data);
     }
   });
