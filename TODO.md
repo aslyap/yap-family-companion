@@ -1,62 +1,51 @@
 # yap-family-companion — Session Handoff
 
-## Session 22 kickoff prompt
+## Session 23 kickoff prompt
 
-**Every fix from session 21 is verified on device. Two new fixes are pushed and
-untested, and the debug code is ready to come out.**
+**iOS calling is finished. Android is the whole job now.**
 
 Read this file and the memory index first.
-Companion `main` at `07a124a`. Kiosk `main` at `9c925c0`.
+Companion `main` at `7873da9`. Kiosk `main` at `078c781`.
 
-Session 21 was a measurement session and it moved a lot. Three long-standing
-"facts" turned out to be wrong, so check the outcomes below before acting on any
-assumption you inherit.
+Session 22 verified everything session 21 left open and fixed the two cosmetic
+items on top of it. Nothing about iOS calling is outstanding except installing a
+build that is already pushed. **Do not re-open iOS unless a test says to.**
 
-### Priority 1 — run this test, first thing
+### Priority 1 — Android
 
-**State at handoff.** Fly backend **deployed and verified** — `/api/ring/stop`
-returned `{"ok":true}`. iOS **and** Android builds were triggered at `07a124a`.
-Nothing has been tested.
+Android has not been rebuilt since `43a9261`. Everything since is unverified on
+it, which is eight commits' worth of calling changes plus this session's two.
+Bark and `camera_facing` are the only things that don't apply — Bark is iOS-only,
+and Android's camera was never reported wrong (worth one glance anyway now that
+the call type says `front`; it applies to both platforms).
 
-**Give the user exactly these steps, in this order, and nothing else:**
+Build `build-android.yml`, install on the Oppo, and test in this order:
 
-> **1.** Hard refresh the kiosk (Ctrl+Shift+R).
->
-> **2.** Install the iOS build.
->
-> **3.** Three calls:
->
-> - **Call 1:** Force-kill the app first. Call. Tap Bark. Accept. Stay 40 seconds.
-> - **Call 2:** Don't kill the app. Call. Accept on the Yap Family screen. Stay 40 seconds.
-> - **Call 3:** Leave the phone alone 60 seconds, screen off. Call. Note whether it rings.
->
-> **4.** Send me the kiosk console after call 1, the kiosk console after call 2,
-> and whether call 3 rang.
+1. **Decline.** Open and unretested for **three** sessions — reported broken, then
+   the client and publish paths were both rewritten underneath it. Decline on the
+   phone must end the kiosk call.
+2. **Cold-start ring.** Force-kill the app, screen off, call. It must ring.
+3. **Accept, and the b24bb7b guard.** Accept from the app's own screen. Watch for
+   the ring screen flapping back after JOINING — that was the iOS bug and the fix
+   is platform-independent.
+4. **Return home.** The call ends → the phone drops to the Android launcher.
 
-**How to read the results.** The strip must say `b=07a124a` or the reading is
-void.
+The strip is still in the build; read it before theorising.
 
-| | expect | meaning |
-|---|---|---|
-| Call 1 | Bark appears (app was dead — correct). First `[rx]` sample at +6s ~**30fps**, not 12fps | `a345bb3` bitrate fix works |
-| Call 2 | **No Bark at all.** Kiosk logs `[bark] held by backend`. Audio works both ways | `cd45317`/`9c925c0` Bark suppression works |
-| Call 3 | Bark rings, ~1.2s later than before | the suppression fails safe — **this must never regress** |
+### Priority 2 — two things pushed but not yet live
 
-Call 3 is the one that matters most. A redundant Bark is a broken audio session;
-no Bark at all is a missed call, which is far worse.
+- **Companion `7873da9`** removes the duplicate "Yap Family is calling"
+  notification on iOS. Pushed, **needs an iOS build**, unverified. An iOS build
+  was being triggered as session 22 ended.
+- **Kiosk `a6cddca`** fixes the misleading `[ring] bark sent` log line. Pushed,
+  **needs a Fly deploy**, which has NOT been done.
 
-If call 2 still shows a Bark banner, check the kiosk console first: `[bark]
-backend hold unavailable, sending directly` means the kiosk could not reach the
-backend and fell back — that is the fallback working, not the fix failing.
+### Priority 3 — strip the debug code
 
-**Android** was also built at `07a124a` and has not been verified since
-`43a9261`. Bark is iOS-only, so those tests do not apply; what Android needs is
-**the decline retest**, open and unretested for two sessions.
-
-### Priority 2 — strip the debug code
-
-Calling is now signed off on iOS apart from the two items above. Remove:
+iOS calling is signed off. Remove:
 - `src/callTrace.js`, `src/debugLog.js`, and their calls
+- `IncomingCallScreen.js`: the `camState()` helper and its five `cam@` call sites
+  (added session 22 — they did their job)
 - `App.js`: `SHOW_CALL_DEBUG`, `BUILD_TAG`, `CallDebugStrip`, `WaitedSeconds`,
   `DebugLogLines`, `styles.debugStrip`, the no-client strip
 - `streamClient.js`: the `connect:` / `token ok` / `[sdk]` lines and `sdkLogger`
@@ -65,24 +54,121 @@ Calling is now signed off on iOS apart from the two items above. Remove:
 - kiosk `IncomingCallOverlay.jsx` `[IncomingCall]` logs, and
   `VideoCallOverlay.jsx`'s `call.on('all')` + `[call] poll —` line
 
+Also now redundant and removable with it: `IncomingCallScreen`'s two
+`selectDirection('front')` calls and the post-join re-assert. The call type opens
+the front camera now, and those calls provably never moved the hardware.
+
 **Keep:** `withTimeout` around `join()`, the kiosk's rejection poll itself,
 `[call] watching this call:`, the kiosk `[mic]`/`[cam]` lines, `[bark]`/`[ring]`
-lines, `src/acceptState.js`, `src/publishTuning.js`, `src/ringHeartbeat.js`.
+lines, `src/acceptState.js`, `src/publishTuning.js`, `src/ringHeartbeat.js`, and
+the `settings_override` block in the kiosk's `startCall()`.
 
-⚠️ Don't strip until Priority 1 passes — the strip is still the only diagnostic
-surface either phone has.
+⚠️ Don't strip until Priority 1 passes — the strip is the only diagnostic surface
+the Oppo has.
 
-### Priority 3 — the leftovers
+### Priority 4 — the leftovers
 
+- **Target Resolution is 2160p** on the `default` call type. Every capture reading
+  is `2160x3840` while the call actually publishes `720x1280`, so the phone is
+  capturing 4K and throwing most of it away. Raised in session 22 and deliberately
+  **not** changed — it was not the variable under test. ⚠️ The 720p publish is
+  currently an *accident*: `selectDirection`'s `applyConstraints({facingMode})`
+  passes no width/height, and react-native-webrtc's `normalizeMediaConstraints`
+  defaults them to 1280x720. Strip those `selectDirection` calls (Priority 3) and
+  the publish may jump to 4K. **Measure before and after.**
 - **Kiosk never drops finished calls.** `useCalls()` climbed 1 → 2 → 3 → 4 across
   one session. Real, and untouched. The byte counters said it was NOT what
   starved the slow calls, so it is a tidiness/leak issue, not the video bug.
 - **Kiosk calls `join()` twice** on one call object (error suppressed).
 - Beelink music server down ⇒ `24a7119`'s call-time audio-output switch fails
   (`localhost:5004/audio-output` ERR_CONNECTION_REFUSED in every console dump).
-- Android has not been rebuilt since `43a9261`. Everything since — including the
-  accept guard and the SDK logger — is **unverified on Android**.
 - Retire Yap Dad Companion (`..\yap-dad-companion`).
+
+---
+
+## Session 22 outcomes (2026-07-26)
+
+### Everything session 21 left open is verified on device
+
+| Fix | Evidence |
+|---|---|
+| `a345bb3` bitrate ramp | "Slow video is fixed. Works well" — first call, no ramp |
+| `cd45317`/`9c925c0` Bark suppression | App unlocked and open: **no Bark at all**, call connects |
+| the suppression's fail-safe | Phone locked: Bark rings normally. **This must never regress** |
+| Fly log confirmation | `holding push for 1200ms` → `suppressed, phone is ringing on screen` |
+
+### The iPhone was filmed by its own back camera — fixed at the call type
+
+Not an app bug at all. The strip named it on a line written **before any app code
+ran**:
+
+```
+cam@enabled  dir=back  fm=environment  dev=…ideo:0  2160x3840
+```
+
+`applyDeviceConfig` does `settings.camera_facing === 'front' ? 'front' : 'back'`,
+so anything short of an explicit `front` is back. **The Stream dashboard does not
+expose `camera_facing`** — only Video, Camera Enabled by Default, Allow Camera
+Permission Request and Target Resolution — but the API takes it, so the kiosk now
+sets it in `getOrCreate` via `settings_override` (`078c781`). Kiosk-side: **no app
+build was needed**.
+
+Verified: `cam@enabled dir=front fm=user dev=…ideo:1`, the device id moved from
+`…ideo:0`, face on screen, and the rotate button now flips on **one** press.
+
+**Why switching afterwards could never work.** `selectDirection('front')` ran
+twice per call and both resolved without error while the rear camera stayed live.
+On React Native it is `applyConstraints({facingMode})` against the **live** capture
+session, and the strip caught the first one landing on `NO TRACK` — the stream was
+mid-restart, so it set the SDK's direction to `front` and touched no hardware.
+That is also the two-press rotate button: `flip()` toggles from the SDK's tracked
+direction, so the first press only corrected the bookkeeping. `select(deviceId)`
+is not a fallback — it throws "not supported in React Native".
+
+⚠️ **`settings_override` REPLACES a settings block, it does not merge into it.**
+This broke every call twice in a row before it was understood:
+
+| sent | result |
+|---|---|
+| `camera_facing` only | `target_resolution` 0x0 → `GetOrCreateCall` rejected every call |
+| `+ target_resolution` | `enabled`/`camera_default_on` false → phone joined audio-only, `[sdk] Camera init failed — No permission to publish VIDEO`, `me pub=A-` |
+| `+ enabled, camera_default_on, access_request_enabled` | works |
+
+That block is now a **copy of dashboard state**. Edit the call type in the
+dashboard and you must edit `startCall()` to match, or it silently overrides it.
+
+### The duplicate iOS notification (`7873da9`, pushed, needs a build)
+
+iOS was getting two alerts per call: the app's own local notification ("Yap Family
+is calling — tap to open"), then Bark ~5s later. The local one is in-process and
+instant; Bark is 1.2s of hold plus the api.day.app relay plus APNs.
+
+It never added reach — its guard was `appState !== 'active'`, which is exactly
+when the backend sends Bark too, so it only ever fired alongside one, and as an
+ordinary notification it is silent on silent mode. And it could break the call it
+announced: tap the early banner, answer, and Bark arrives seconds later and rings
+over the live call, holding the iOS audio session. That is `cd45317`'s failure via
+a different route. Removed, along with the now-pointless iOS notification
+permission request.
+
+⚠️ Accepted cost: if a Bark push is ever rejected outright there is now **no**
+second alert. `[ring] bark rejected` in the Fly log is the thing to watch.
+
+### Instrument lessons (this is now the third session running)
+
+1. **`[ring] bark sent` was printing the api.day.app round trip, not the send.**
+   The log read `holding push for 1200ms` at 09:40:04 and `bark sent` at 09:40:24
+   and looked like a 20-second delay in our own code. Bark's reply carried
+   `timestamp=1785058806` — 09:40:06 — so the push left on schedule. A whole
+   theory was built and discarded on that. Fixed in `a6cddca` (**needs a Fly
+   deploy**): it now logs before the POST and times the relay separately.
+2. **`track.getSettings().facingMode` lied.** At `settled10s` both the SDK's state
+   and iOS's own capture-controller flag said `fm=user` while the room was on
+   screen. It reports `usingFrontCamera`, a flag — not which device the capture
+   session is actually running. The **device id** (`…ideo:0` vs `…ideo:1`) and the
+   resolution were the honest fields.
+3. A wrong theory was published to the user mid-session and retracted after
+   reading the log. That is the process working — but check the log *first*.
 
 ---
 
@@ -1026,11 +1112,22 @@ causes of the earlier failures.
       (session 21): a 20-30s bitrate ramp from a 300kbps start**, not kiosk-side
       at all (`rtt=4ms`, audio fine on the same connection). Fixed `a345bb3`,
       needs a build to verify.
-- [ ] 🔴 **Verify `a345bb3` (bitrate ramp) and `cd45317`/`9c925c0` (Bark
-      suppression)** — pushed, untested. **Session 22 Priority 1.** The Bark one
-      needs a **Fly deploy** as well as Vercel.
-- [ ] **Retest decline on Android** — reported broken this session, never retested
-      after the client and publish paths were fixed underneath it
+- [x] ~~Verify `a345bb3` (bitrate ramp) and `cd45317`/`9c925c0` (Bark
+      suppression)~~ — **both verified on iOS** (session 22), including the
+      fail-safe: a locked phone still gets Bark
+- [x] ~~iPhone films with the back camera / rotate needs two presses~~ — not an
+      app bug: the call type's `camera_facing`. Fixed kiosk-side (`078c781`),
+      **verified on device** (session 22)
+- [x] ~~Two notifications per call on iOS~~ — the app's own local notification
+      removed (`7873da9`). Pushed, **needs an iOS build**
+- [ ] **Retest decline on Android** — reported broken, never retested after the
+      client and publish paths were fixed underneath it. Open three sessions.
+      **Session 23 Priority 1.**
+- [ ] **Deploy the backend** — `a6cddca` (honest `[ring] bark` timing) is pushed
+      but not deployed to Fly
+- [ ] **Target Resolution is 2160p** on the `default` call type — the phone
+      captures 4K and publishes 720p. See Priority 4; the 720p publish is
+      currently an accident of `selectDirection`'s constraint defaults
 - [ ] ~2s ring delay on Android: every call is a cold start because the app exits
       after each one; ~1.2s of it is the token fetch and is cacheable (optional)
 - [x] ~~Bark keeps ringing after the call is answered~~ — far worse than a
