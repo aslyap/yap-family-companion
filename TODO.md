@@ -759,15 +759,38 @@ unrelated — the decline path (`call.leave({reject: true})`) was never touched.
 is installed on it, companion app installed via SideStore, ntfy installed and
 subscribed to `yap-kath-f3k8p2n1`.
 
-**Auto-refresh is set up** — Shortcuts → Automation → Time of Day, 12:00 AM daily,
-Run Immediately, action **Open App → SideStore**. The iCloud shortcut from earlier
-sessions was broken ("an action could not be found") and is unused; the stock
-Open App action does the job with no third-party dependency.
-- ✅ Confirmed it fires (set the time 2 min ahead, SideStore opened by itself)
-- 🔄 **Not confirmed it actually refreshes.** Both SideStore and Yap Family read
-  "expires in 7 days" as of 2026-07-19. If they still read 7 days the next day,
-  refresh works. If 6, the automation opens the app but isn't refreshing.
-- ⚠️ Must be redone on Kath's actual phone — the automation lives on the device.
+**Auto-refresh — SOLVED AND VERIFIED (2026-07-26).** ✅ SideStore reads **"Expires
+in 7 days"** the morning after the automation fired. 7 rather than 6 is the whole
+test: it refreshed **while the phone was locked overnight**, so LocalDevVPN
+activates locked and this is genuinely hands-off. No retiming needed. Turn
+**"Notify When Run" OFF** now that it is proven.
+
+⚠️ The action must be SideStore's own **"Refresh All Apps"**, NOT **Open App** —
+Open App only foregrounds SideStore and never refreshes, which is why the expiry
+had counted down to 1 day. Don't let this regress.
+
+### Repeating all of this on Kath's phone
+
+The automation lives on the device, so **none of it transfers**. Full sequence:
+
+1. Install SideStore via **LocalDevVPN + iloader** (not Sideloadly). Choose
+   **SideStore (Stable)** — not Nightly, not LiveContainer.
+2. Get the IPA onto the phone: Safari → github.com → Actions → the
+   `build-ios.yml` run → Artifacts. The share sheet fails with "doesn't exist";
+   use SideStore's own **+** file picker instead.
+3. Install the IPA **from inside SideStore**, never via iloader/Sideloadly —
+   only apps SideStore manages get refreshed.
+4. Shortcuts → Automation → Personal Automation → **Time of Day, 12:00 AM
+   daily, Run Immediately** (Ask Before Running OFF) → Do: SideStore
+   **"Refresh All Apps"**.
+5. Verify it the same way: note the expiry, leave the phone locked on the
+   charger overnight, check next morning. **7 days = working. 6 = it only runs
+   unlocked**, so retime the automation to an hour the phone is unlocked.
+6. Allow the notification permission on first run, then install **Bark** and
+   confirm its device key matches the kiosk's Vercel env var (see the Bark
+   notes — Bark *is* the ring on iOS, and Critical Alerts must be allowed or it
+   won't bypass silent mode). `USE_FULL_SCREEN_INTENT` is Android-only and does
+   not apply here.
 
 **Install route:** iloader (not Sideloadly). Current docs are LocalDevVPN + iloader;
 `docs.sidestore.io/docs/installation/prerequisites` loads, deeper pages 404.
@@ -868,7 +891,11 @@ causes of the earlier failures.
       and the `connect:` / `token` / `[sdk]` lines in `streamClient.js`, the
       `WaitedSeconds` / `DebugLogLines` components in `App.js`, and `CallDebugStrip`
       rendering over the call screens
-- [ ] Confirm SideStore refresh moved the expiry date (must be Kath's real phone)
+- [x] ~~Confirm SideStore refresh moved the expiry date~~ — **VERIFIED 2026-07-26**
+      on the spare test iPhone: reads "Expires in 7 days" the morning after the
+      automation fired, which means it refreshed **while locked**. Hands-off.
+      Turn "Notify When Run" OFF. Still to be redone on **Kath's** phone — see
+      the iOS / SideStore section below for the full sequence.
 - [ ] Retire Yap Dad Companion
       (`C:\Users\user\Desktop\Digital Dashboard\yap-dad-companion`)
 
