@@ -14,7 +14,10 @@
 // could be read. Session 20 adds participant/track lines on top of that, and the
 // whole point is to compare call 1 against call 2 — so BOTH sequences have to be
 // on screen at once, which is ~7 lines each.
-const MAX = 16;
+// A single call now costs ~14 lines (the join retries alone are 6 state
+// transitions), so 16 could not hold call 1 and call 2 at once — and comparing
+// those two is the entire iOS investigation.
+const MAX = 26;
 let lines = [];
 let listeners = new Set();
 

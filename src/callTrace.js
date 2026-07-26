@@ -142,7 +142,11 @@ const MAX_TRACE_MS = 180000;
 // so a trace that chattered would silently destroy the evidence it was added to
 // collect. `muted` on a remote audio receiver can flap on RTP stalls; six changes
 // is already the whole story, and anything beyond that is churn.
-const MAX_LINES = 6;
+// Cut from 6: the iPhone reading spent 5 of them walking `me` from pub=-- to
+// pub=AV one track at a time, which the `me pub=` field on the final line already
+// says. The remote's sub=/muted state is what matters and it settles in the first
+// two or three.
+const MAX_LINES = 4;
 
 /**
  * Watch a call's participants for as long as it lasts and write every CHANGE to

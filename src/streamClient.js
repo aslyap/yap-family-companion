@@ -79,6 +79,32 @@ export async function tokenProvider(userId) {
   throw lastError;
 }
 
+// TEMPORARY — see the logger option below.
+//
+// The strip holds a fixed number of lines and the SDK is chatty, so an unfiltered
+// firehose would evict the accept sequence it is meant to explain. Only warn and
+// error, deduped, truncated, and capped for the life of the process: past the cap
+// the interesting failure has already happened and anything later is noise.
+const SDK_LOG_CAP = 10;
+let sdkLogCount = 0;
+let lastSdkLine = null;
+
+function sdkLogger(logLevel, message, ...args) {
+  if (logLevel !== 'warn' && logLevel !== 'error') return;
+  console.warn(`[sdk:${logLevel}]`, message, ...args);
+  if (sdkLogCount >= SDK_LOG_CAP) return;
+  // Errors carry the actual reason in an argument, not in the message.
+  const detail = args
+    .map(a => (a instanceof Error ? a.message : typeof a === 'string' ? a : ''))
+    .filter(Boolean)
+    .join(' ');
+  const line = `[sdk] ${message}${detail ? ` — ${detail}` : ''}`.slice(0, 110);
+  if (line === lastSdkLine) return;
+  lastSdkLine = line;
+  sdkLogCount += 1;
+  debugLog(sdkLogCount === SDK_LOG_CAP ? `${line} (sdk log cap)` : line);
+}
+
 let _client = null;
 let _connecting = null;
 
@@ -99,7 +125,21 @@ export async function getOrCreateClient() {
     const identity = (await AsyncStorage.getItem('yap_identity')) || 'kath';
     const user = STREAM_USERS[identity];
     debugLog(`connect: start me=${identity}`);
-    const c = new StreamVideoClient({ apiKey: STREAM_API_KEY });
+    const c = new StreamVideoClient({
+      apiKey: STREAM_API_KEY,
+      // TEMPORARY — route the SDK's own warnings onto the debug strip.
+      //
+      // The iPhone strip showed callingState oscillating joining -> ringing ->
+      // joining -> ringing -> joining -> joined over 7.3s. That is Call.join's
+      // internal retry loop: doJoin failed, restored the previous state, slept and
+      // tried again, twice, before succeeding. The reason for each failure goes to
+      // `this.logger.warn('Failed to join call (n)')` and nowhere else — and
+      // neither phone can produce console logs, so it has been invisible. After two
+      // failures the SDK also sets `migrating_from` and moves to a different SFU,
+      // which is a large behavioural change nobody knew was happening.
+      logLevel: 'warn',
+      logger: sdkLogger,
+    });
     try {
       await withTimeout(
         c.connectUser(user, () => tokenProvider(user.id)),
