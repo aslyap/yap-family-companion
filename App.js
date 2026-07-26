@@ -26,7 +26,7 @@ import { getOrCreateClient, clearClient } from './src/streamClient';
 import { onOutgoingCallChange, getOutgoingCall } from './src/outgoingCallStore';
 import { getDebugLines, onDebugLog, debugLog } from './src/debugLog';
 import { callSeq } from './src/callTrace';
-import { markCallPending, clearCallPending, useCallPending } from './src/pendingCall';
+import { markCallPending, clearCallPending, useCallPending, isCallPending } from './src/pendingCall';
 import { returnToAndroidHome } from './src/returnHome';
 import { COLORS } from './src/theme';
 
@@ -408,17 +408,34 @@ function StreamWrapper({ children }) {
           if (nextState === 'background') {
             bgAt = Date.now();
           } else if (nextState === 'active' && bgAt !== null && !cancelled) {
-            if (Date.now() - bgAt > 30000) {
+            const bgSecs = Math.round((Date.now() - bgAt) / 1000);
+            // Never tear the client down while it holds a call.
+            //
+            // Measured: `#2 call seen by=family-hub` at 33:03.223, then
+            // `resume: reconnecting after 48s bg` at 33:03.934 — 711ms later this
+            // handler destroyed the very client that had just delivered the call,
+            // and the call object went with it. The replacement connected fine and
+            // knew nothing about the call, so no ring screen ever appeared.
+            //
+            // The trap is structural, not a tuning problem: being woken BY an
+            // incoming call is precisely the case where the app has been in the
+            // background for a long time, so the >30s rule fires on exactly the
+            // calls it must not touch. A client that has just delivered a call has
+            // also just proven its WebSocket is alive, which is the only thing the
+            // reconnect was ever checking for.
+            const heldCalls = c.state?.calls?.length ?? 0;
+            if (Date.now() - bgAt > 30000 && heldCalls === 0 && !isCallPending()) {
               // This full teardown + reconnect is the remaining cost of unlocking a
               // phone that has been idle, and it is unmeasured. If the placeholder
               // still sits on "Connecting…" for a long time, the gap between this
               // line and `onRingingCall ok` is the number to look at.
-              debugLog(`resume: reconnecting after ${Math.round((Date.now() - bgAt) / 1000)}s bg`);
+              debugLog(`resume: reconnecting after ${bgSecs}s bg`);
               setRetryCount(n => n + 1);
             } else {
-              // Short background: WebSocket still alive but might have missed ring events.
+              if (bgSecs > 30) debugLog(`resume: ${bgSecs}s bg, keeping client (calls=${heldCalls})`);
+              // WebSocket presumed alive, but it may have missed ring events.
               c.queryCalls({ filter_conditions: { ringing: true }, limit: 5, watch: true })
-                .catch(() => {});
+                .catch(err => console.warn('[Stream] resume queryCalls failed:', err));
             }
             bgAt = null;
           }
