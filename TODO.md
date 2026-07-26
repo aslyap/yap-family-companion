@@ -44,6 +44,41 @@ phone *receives*. Add strip lines and build:
 The question the strip must answer: does the phone see the kiosk as a participant
 at all on call 2, and if so, does it think that participant has tracks?
 
+#### Instrumentation added (session 20) — `src/callTrace.js`
+
+`callSeq(call)` numbers every call the process sees — including one that only rang
+and was cancelled, which poisons the next call just as much as an answered one, so
+it consumes a number too. Every accept line is now prefixed `#1`, `#2`, … and only
+a force-kill resets the counter, which is exactly the boundary the bug lives on.
+
+`traceCall(call)` subscribes `participants$` **directly**, started before `join()`
+and disposed on `left` — *not* on `idle`, because `callingState$` is a
+BehaviorSubject and a call recovered by `queryCalls` is still `idle` at that point.
+It logs only *changes*, capped at 6 lines per call (the last is marked `(last)`) so
+it can never push the join sequence off the strip. Strip capacity raised 10 → 16 so
+call 1 and call 2 are both on screen at once, and the strip now also renders **over**
+the call screens (`pointerEvents="none"`, Hang Up still works underneath) — the
+broken call sits on a spinner forever, which is when the reading is wanted.
+
+Line format: `#2 +1658ms n=2 rem=1 | me pub=AV | family-hub pub=AV sub=av a[live muted=false] v[live muted=false]`
+- `pub=` what the SFU says that participant publishes (A/V, `-` for neither, `??`
+  if the TrackType enum failed to resolve — never silently `-`)
+- `sub=` whether **we hold a MediaStream** for it. This is the receive side, the
+  thing the kiosk's view of the phone cannot show, and the whole point of the file.
+- `a[…] v[…]` raw `readyState` and `muted`, named — the session-19 `live false`
+  misreading is not repeatable on this format
+- `int=` `interruptedTracks`: intends to publish, no media flowing right now
+- no `sub=` on `me` — we never subscribe to our own tracks and `--` there would
+  invite the same misreading
+
+Three readings, three different bugs:
+1. `rem=0` on call 2 — the phone never sees the kiosk. Coordinator/SFU state.
+2. `rem=1 … pub=AV sub=--` — sees it, publishing, never subscribed. Subscriber
+   peer connection / native WebRTC, and the strongest match for "survives a JS
+   client teardown, cleared only by killing the process".
+3. `rem=1 … sub=av` with dead or muted tracks — subscribed but no media; a
+   rendering or native-track problem, not a signalling one.
+
 ### Priority 2 — verify the Android build
 
 `build-android.yml` at `facb8b3`+. Session 19 triggered no Android test at all, so

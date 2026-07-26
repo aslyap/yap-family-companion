@@ -25,6 +25,7 @@ import ActiveCallScreen from './src/screens/ActiveCallScreen';
 import { getOrCreateClient, clearClient } from './src/streamClient';
 import { onOutgoingCallChange, getOutgoingCall } from './src/outgoingCallStore';
 import { getDebugLines, onDebugLog, debugLog } from './src/debugLog';
+import { callSeq } from './src/callTrace';
 import { markCallPending, clearCallPending, useCallPending } from './src/pendingCall';
 import { returnToAndroidHome } from './src/returnHome';
 import { COLORS } from './src/theme';
@@ -114,6 +115,12 @@ function CallOverlay() {
   }, []);
 
   useEffect(() => {
+    // Number every call the moment it is first seen, not at accept: a call that
+    // merely RANG and was cancelled from the kiosk poisons the next one exactly as
+    // much as an answered one does, so it has to consume an ordinal or the numbers
+    // stop lining up with what was actually done to the phone. Numbering only —
+    // participant state is watched by traceCall, never from an effect.
+    calls.forEach(callSeq);
     console.log('[CallOverlay] calls:', calls.map(c => `${c.id.slice(-8)}:${c.state.callingState}:createdBy=${c.state.createdBy?.id}`).join(', ') || '(none)');
     console.log('[CallOverlay] active:', active?.id?.slice(-8) ?? 'null', '| outgoingRinging:', outgoingRinging?.id?.slice(-8) ?? 'null', '| outgoingCallStore:', outgoingCall?.id?.slice(-8) ?? 'null', '| incomingRing:', incomingRingCall?.id?.slice(-8) ?? 'null');
   }, [calls, outgoingCall]);
@@ -165,6 +172,12 @@ function CallOverlay() {
         <StreamCall call={displayActive}>
           <ActiveCallScreen onLeft={() => setOutgoingCallState(null)} />
         </StreamCall>
+        {/* TEMPORARY — the strip used to render only on the no-call branch, so the
+            participant/track lines could not be read until the call was over. The
+            broken second call sits on a spinner indefinitely, which is precisely
+            when the reading is wanted. pointerEvents="none", so Hang Up still
+            works underneath it. */}
+        <CallDebugStrip calls={calls} identity={identity} />
       </View>
     );
   }
@@ -178,6 +191,7 @@ function CallOverlay() {
             onDeclined={() => { userDeclinedRef.current = false; }}
           />
         </StreamCall>
+        <CallDebugStrip calls={calls} identity={identity} />
       </View>
     );
   }

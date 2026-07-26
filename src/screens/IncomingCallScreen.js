@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Vibration, ActivityIndicator,
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCall, useCallStateHooks, CallingState } from '@stream-io/video-react-native-sdk';
 import { debugLog } from '../debugLog';
+import { callSeq, traceCall } from '../callTrace';
 
 // A hung call.join() must not leave Accept spinning forever with no error (the
 // iPhone symptom). Time it out so a hang becomes a visible failure that resets
@@ -72,6 +73,10 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     if (busy) return;
     setBusy('accepting');
     const t0 = Date.now();
+    // Which call of this process is this? On iOS only the first one after launch
+    // works, so every line below has to say which run it belongs to or the two
+    // near-identical sequences cannot be compared.
+    const n = callSeq(call);
     try {
       //
       // Join FIRST, enable media after: enabling camera+mic before join once hung
@@ -79,7 +84,12 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       // camera is secondary — enable it once the call is connected. join() is
       // time-boxed so a genuinely hung join surfaces as a failure on the strip
       // instead of an infinite spinner.
-      debugLog('accept: joining');
+      debugLog(`#${n} accept: joining`);
+      // Started BEFORE join, and deliberately not stopped when this screen goes
+      // away: the kiosk should appear as a participant during or just after the
+      // join, and CallOverlay unmounts this screen at JOINING. traceCall keeps
+      // reporting on its own subscription until the call leaves.
+      traceCall(call);
       // Where does the time actually go? Timing only around join() cannot tell a
       // join that hung with nothing happening from one that reached the SFU and
       // negotiated slowly — and a 30s timeout was read as "slow audio session"
@@ -93,7 +103,7 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       const since = () => `+${Date.now() - t0}ms`;
       let sub;
       try {
-        sub = call.state.callingState$.subscribe(s => debugLog(`state ${s} ${since()}`));
+        sub = call.state.callingState$.subscribe(s => debugLog(`#${n} state ${s} ${since()}`));
       } catch (e) {
         // Not fatal — the join still runs, we just lose the breakdown. Say so,
         // rather than leaving a silent gap that looks like "no transitions".
@@ -105,7 +115,7 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       } finally {
         sub?.unsubscribe?.();
       }
-      debugLog(`accept: joined ok in ${Date.now() - t0}ms`);
+      debugLog(`#${n} accept: joined ok in ${Date.now() - t0}ms`);
       onAccepted();
       // Fire-and-forget; a camera/mic failure must not strand a connected call.
       //
@@ -127,7 +137,7 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       });
     } catch (e) {
       console.warn('[IncomingCall] accept failed:', e);
-      debugLog(`join FAILED after ${Date.now() - t0}ms: ${e?.message ?? e}`);
+      debugLog(`#${n} join FAILED after ${Date.now() - t0}ms: ${e?.message ?? e}`);
       setBusy(null); // let them try again rather than stranding them on a dead screen
     }
   }

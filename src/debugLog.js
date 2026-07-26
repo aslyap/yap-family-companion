@@ -11,8 +11,10 @@
 
 // The Accept sequence now logs the audio warm-up, each callingState transition and
 // the join outcome; 6 lines pushed the start of the sequence off the top before it
-// could be read.
-const MAX = 10;
+// could be read. Session 20 adds participant/track lines on top of that, and the
+// whole point is to compare call 1 against call 2 — so BOTH sequences have to be
+// on screen at once, which is ~7 lines each.
+const MAX = 16;
 let lines = [];
 let listeners = new Set();
 

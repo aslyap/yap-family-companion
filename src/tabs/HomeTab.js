@@ -10,6 +10,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useIdentity } from '../contexts/IdentityContext';
 import { getOrCreateClient } from '../streamClient';
 import { setOutgoingCall } from '../outgoingCallStore';
+import { traceCall } from '../callTrace';
 import { COLORS, FONTS, getAccentColor } from '../theme';
 import { fetchCalendarEvents, invalidateCalendarCache } from '../services/calendarService';
 import { fetchTasks, isTaskForDate, isCompleteForDate, todayStr } from '../services/tasksService';
@@ -447,6 +448,10 @@ function CallHomeButton({ identity }) {
         data: { members: [{ user_id: identity }, { user_id: 'family-hub' }] },
       });
       console.log('[Call] joining...');
+      // Same receive-side trace as the incoming path, so an outgoing call from the
+      // phone can be compared against an answered one on the same strip. Started
+      // before join so the kiosk's arrival as a participant is caught.
+      traceCall(call, 'out');
       await call.join();
       console.log('[Call] joined, callingState:', call.state.callingState);
       await Promise.all([
