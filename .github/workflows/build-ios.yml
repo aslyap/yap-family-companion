@@ -15,6 +15,11 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      # The debug strip prints this so a reading names the build it came from.
+      # `#N` cannot do that — it is a per-call counter, identical in every build.
+      - name: Record build tag
+        run: echo "EXPO_PUBLIC_BUILD_TAG=${GITHUB_SHA::7}" >> $GITHUB_ENV
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:

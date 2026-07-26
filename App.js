@@ -35,6 +35,14 @@ const CALL_NOTIF_ID = 'yap-incoming-call';
 // TEMPORARY — set to false (or delete CallDebugStrip) once the cold-start ring works.
 const SHOW_CALL_DEBUG = true;
 
+// TEMPORARY — which build this reading came from.
+//
+// Twice in session 20 a conclusion was drawn from a phone running the previous
+// APK. The `#N` prefix cannot catch that: it is a per-process call counter and
+// reads identically in every build. The workflows set this to the short SHA they
+// built, so the strip names its own commit; `dev` means a local Metro bundle.
+const BUILD_TAG = process.env.EXPO_PUBLIC_BUILD_TAG ?? 'dev';
+
 const PACKAGE = 'com.yapfamily.companion';
 
 // These settings intents take a `package:` data URI — not extras. Linking.sendIntent
@@ -236,7 +244,7 @@ function CallDebugStrip({ calls, identity }) {
   return (
     <View style={styles.debugStrip} pointerEvents="none">
       <Text style={styles.debugText}>
-        me={identity ?? '?'} calls={calls.length}
+        b={BUILD_TAG} me={identity ?? '?'} calls={calls.length}
         {calls.length > 0 && ' · '}
         {calls
           .map(c => `${c.id.slice(-6)}:${c.state.callingState}:by=${c.state.createdBy?.id ?? '?'}${c.state.endedAt ? ':ended' : ''}`)
@@ -568,7 +576,7 @@ function StreamWrapper({ children }) {
         SHOW_CALL_DEBUG && (
           <View style={styles.debugStrip} pointerEvents="none">
             <Text style={styles.debugText}>
-              no client · me={identity ?? 'none'} · readyClient={readyClient ? 'yes' : 'no'} · attempt={retryCount + 1} · waited=<WaitedSeconds />s
+              no client · b={BUILD_TAG} · me={identity ?? 'none'} · readyClient={readyClient ? 'yes' : 'no'} · attempt={retryCount + 1} · waited=<WaitedSeconds />s
             </Text>
             {/* The connect phases land here too — a strip that shows `connect: start`
                 and then nothing has told you where it stopped. */}
