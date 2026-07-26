@@ -5,6 +5,7 @@ import { useCall, useCallStateHooks, CallingState } from '@stream-io/video-react
 import { debugLog } from '../debugLog';
 import { callSeq, traceCall } from '../callTrace';
 import { markAccepting, isAccepting, clearAccepting } from '../acceptState';
+import { applyPublishTuning } from '../publishTuning';
 
 // A hung call.join() must not leave Accept spinning forever with no error (the
 // iPhone symptom). Time it out so a hang becomes a visible failure that resets
@@ -197,6 +198,8 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
         sub?.unsubscribe?.();
         return;
       }
+      // Before join(), never after — the SDK ignores it once JOINED.
+      applyPublishTuning(call);
       try {
         await withTimeout(call.join(), 30000, 'join');
       } finally {

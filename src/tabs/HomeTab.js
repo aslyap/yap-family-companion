@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useIdentity } from '../contexts/IdentityContext';
 import { getOrCreateClient } from '../streamClient';
+import { applyPublishTuning } from '../publishTuning';
 import { setOutgoingCall } from '../outgoingCallStore';
 import { traceCall } from '../callTrace';
 import { COLORS, FONTS, getAccentColor } from '../theme';
@@ -452,6 +453,9 @@ function CallHomeButton({ identity }) {
       // phone can be compared against an answered one on the same strip. Started
       // before join so the kiosk's arrival as a participant is caught.
       traceCall(call, 'out');
+      // Same bitrate ramp applies to an outgoing call, and for the same reason —
+      // before join(), never after.
+      applyPublishTuning(call);
       await call.join();
       console.log('[Call] joined, callingState:', call.state.callingState);
       await Promise.all([
