@@ -325,8 +325,19 @@ function StreamWrapper({ children }) {
   const clientRef = useRef(null);
   const [retryCount, setRetryCount] = useState(0);
   const callPending = useCallPending();
-  // A deep link that arrived before there was a client to hand it to.
-  const pendingUrlRef = useRef(null);
+  // A deep link waiting to be handled.
+  //
+  // STATE, not a ref, and wrapped in an object so an identical URL still counts as
+  // a new arrival. It was a ref consumed by an effect keyed on [readyClient]
+  // alone, which meant it was only ever read when the client *changed* — i.e.
+  // exactly once, on the cold start it was written for. From the second call
+  // onwards the client is already connected, so tapping the Bark banner stored a
+  // URL that nothing ever consumed: the guard below never ran, clearCallPending()
+  // never ran, and IncomingCallPlaceholder sat on top of the real call screen for
+  // its full 25s TTL. That is the "another Yap Family screen, then 15 seconds
+  // before Accept/Decline appear" report — the buttons were underneath the cover
+  // the whole time.
+  const [pendingUrl, setPendingUrl] = useState(null);
 
   // iOS's "a call is coming" signal is the Bark deep link, and this must NOT wait
   // for the client: the deep link is read again inside init() below, but only after
@@ -341,7 +352,9 @@ function StreamWrapper({ children }) {
   useEffect(() => {
     const note = url => {
       if (!url || !/[?&]cid=/.test(url)) return;
-      pendingUrlRef.current = url;
+      // Fresh object every time: two taps on the same call produce the same URL
+      // string, and a plain string in state would not re-render for the second.
+      setPendingUrl({ url, at: Date.now() });
       markCallPending();
     };
     Linking.getInitialURL()
@@ -355,11 +368,10 @@ function StreamWrapper({ children }) {
   // well after the link arrived, and may be a *replacement* client after a resume
   // reconnect.
   useEffect(() => {
-    if (!readyClient || !pendingUrlRef.current) return;
-    const url = pendingUrlRef.current;
-    pendingUrlRef.current = null;
-    recoverCallFromUrl(readyClient, url);
-  }, [readyClient]);
+    if (!readyClient || !pendingUrl) return;
+    setPendingUrl(null);
+    recoverCallFromUrl(readyClient, pendingUrl.url);
+  }, [readyClient, pendingUrl]);
 
   // Ask for notification permission on iOS so background ring alerts can appear.
   useEffect(() => {

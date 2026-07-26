@@ -182,6 +182,23 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
       // transition above; it is idempotent. This covers the case where join()
       // resolves without callingState$ ever emitting JOINED to this subscriber.
       startMedia();
+
+      // Re-assert the direction now that join() has fully finished.
+      //
+      // 894e3c1 moved media enable from "after join() resolves" to "on JOINED",
+      // which put selectDirection into a race it was not in before: doJoin awaits
+      // applyDeviceConfig(this.state.settings, ...) AFTER setting JOINED, and that
+      // applies the call type's own default camera facing. Our front-facing choice
+      // was being made first and then overwritten — the camera came up backwards
+      // again, which is the regression reported after that commit. join() having
+      // returned means applyDeviceConfig has run, so this is the last word.
+      // Idempotent when the camera is already front-facing.
+      call.camera.selectDirection('front')
+        .then(() => debugLog(`#${n} cam front re-asserted ${Date.now() - t0}ms`))
+        .catch(e => {
+          console.warn('[IncomingCall] post-join selectDirection failed:', e);
+          debugLog(`#${n} cam re-assert FAILED: ${e?.message ?? e}`);
+        });
     } catch (e) {
       console.warn('[IncomingCall] accept failed:', e);
       debugLog(`#${n} join FAILED after ${Date.now() - t0}ms: ${e?.message ?? e}`);
