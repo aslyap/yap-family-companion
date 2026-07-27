@@ -183,9 +183,16 @@ function CallOverlay() {
     if (wasShowingCallRef.current && !showingCall) {
       // Before returnToAndroidHome(), which backgrounds the app — hand the
       // notification to the OS while this process is still definitely alive.
-      if (ringOutcomeRef.current === 'ringing') postMissedCall();
+      //
+      // ⚠️ AWAITED, not fire-and-forget. postMissedCall() awaits channel creation
+      // first, so the unawaited version reliably lost the race with exitApp() and
+      // did its actual posting mid-exit-transition. postMissedCall never rejects
+      // (it reports its own errors), so this cannot strand the app on the call
+      // screen.
+      const missed = ringOutcomeRef.current === 'ringing';
       ringOutcomeRef.current = null;
-      returnToAndroidHome();
+      if (missed) postMissedCall().finally(returnToAndroidHome);
+      else returnToAndroidHome();
     }
     wasShowingCallRef.current = showingCall;
   }, [showingCall]);

@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import { debugLog } from './debugLog';
 
 // "The kids called and nobody picked up."
 //
@@ -24,6 +25,34 @@ import * as Notifications from 'expo-notifications';
 // does not depend on this process still being alive a moment later.
 
 const CHANNEL_ID = 'missed-calls';
+const DATA_TAG = 'yapMissedCall';
+
+// ⚠️ Session 25: without this handler the notification was posted and never seen.
+// expo-notifications drops a notification delivered while the app is FOREGROUND
+// unless a handler says to show it — "the default behavior when the handler is not
+// set or does not respond in time is not to show the notification" (Expo SDK 56
+// notifications docs). And foreground is exactly when ours arrives: CallOverlay
+// posts it and calls returnToAndroidHome() in the same tick, so delivery lands
+// during the activity's exit transition, while the app still counts as active.
+// The channel was created, the post succeeded, and nothing appeared.
+//
+// Deliberately scoped to OUR notification by `data` tag. A handler is global, and
+// returning "show" for everything would change how every other notification behaves
+// in the foreground — including anything Stream posts for an incoming call, where an
+// extra banner over a live ring is the iOS bug 7873da9 removed. Everything else
+// keeps today's behaviour explicitly.
+Notifications.setNotificationHandler({
+  handleNotification: async notification => {
+    const mine = notification?.request?.content?.data?.[DATA_TAG] === true;
+    return {
+      shouldShowBanner: mine,
+      shouldShowList: mine,
+      // Never a sound: the phone has already rung for this call.
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+    };
+  },
+});
 
 let channelReady = false;
 
@@ -60,14 +89,23 @@ export async function postMissedCall(at = new Date()) {
         body: `Yap Family called at ${when}`,
         // No sound: the phone has already rung for this call.
         sound: false,
+        // Read by the notification handler above, which shows only our own.
+        data: { [DATA_TAG]: true },
       },
       // ChannelAwareTriggerInput: delivered immediately, on this channel. Not
       // `trigger: null` — that is also immediate but names no channel, so Android
       // would fall back to the default one (Expo SDK 56 notifications docs).
       trigger: { channelId: CHANNEL_ID },
     });
+    // TEMPORARY (strip with SHOW_CALL_DEBUG). console.log/warn go NOWHERE on this
+    // phone — no adb, and debugLog is a separate buffer that does not capture the
+    // console — so the two lines below were the only report this had, and a post
+    // that succeeded, a post that threw, and a post that was never reached all read
+    // identically: nothing on the lock screen. Session 25 lost a call to that.
+    debugLog(`missed: posted for ${when}`);
     console.log('[missed] posted missed-call notification');
   } catch (err) {
+    debugLog(`missed: FAILED: ${err?.message ?? err}`);
     console.warn('[missed] failed to post missed-call notification:', err);
   }
 }
