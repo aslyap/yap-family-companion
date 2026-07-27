@@ -1,6 +1,175 @@
 # yap-family-companion — Session Handoff
 
-## Session 25 kickoff prompt
+## Session 26 kickoff prompt
+
+**Priority 1 (Android) is CLOSED — all four tests pass on `84aac2e`, installed on
+the Oppo. Do not re-open it.** One iOS test is outstanding and needs no build.
+
+Read this file and the memory index first. Companion `main` last **code** commit
+is `84aac2e`; kiosk `main` at `d6794a9`, deployed. The Fly backend needs nothing.
+
+⚠️ **`git fetch --all` in BOTH repos before searching for anything.** Session 24
+reported a feature absent twice after an exhaustive search of a 9-commit-stale
+checkout. A stale checkout and a missing feature return identical "no matches".
+
+⚠️ **QUIET HOURS BLOCK ALL CALL TESTING, 21:00–07:00 SGT** — no override, ever.
+**Check the clock first, and check am/pm.** Session 25 lost time twice to this:
+once starting at 23:50 (nothing could be tested), and once misreading 20:42 as
+08:42 and nearly flagging a correct timestamp as a bug. `Get-Date -Format 'tt'`.
+
+### Priority 1 — iOS missed call (one call, no build)
+
+Kiosk-side and already live. **Session 25 got as far as issuing this instruction
+at 20:45 and ran out of clock.**
+
+Call Kath's iPhone from the kiosk, let it ring out untouched, then end it from
+the kiosk's red hang-up button. Confirm the "Yap Family calling / Tap to answer"
+critical alert is **replaced in place** by "Missed call" — **one** notification,
+not two. The bug that started this was two stacked alerts, 54 minutes and 1 hour
+old, both still offering to answer calls that were long over.
+
+### Priority 2 — the iOS build from session 22, still not installed
+
+`7873da9` removes the duplicate "Yap Family is calling" notification. Waiting
+since session 22. Reproduce with: answer, hang up, lock the phone immediately,
+call again. Before the fix that gave a quiet banner instantly and Bark ~5s later;
+after it, Bark only.
+
+### Priority 3 — decide on the $99 Apple Developer account
+
+Raised in session 25 and **left with the user deliberately**. Do not re-argue it
+from scratch; the case is written up under "SideStore" in the outcomes below.
+Short version: it retires the 7-day signing treadmill, the pairing file, the VPN,
+the nightly automation and SideStore itself, and it is the same $99 previously
+declined for unlock-to-answer. It would also make real APNs/CallKit *possible*,
+which is what Bark currently stands in for — that is a future option worth real
+work, **not** a reason to rip Bark out.
+
+### Then: the strip, and Priority 4
+
+**Do not strip the debug code yet.** The strip earned its keep twice in session
+25 — `b=84aac2e` confirmed which build a reading came from, and the absence of a
+`missed:` line proved a "missed call test" had actually been a decline. Two of
+the four unexplained items are still unexplained failures on the Oppo.
+
+### Two standing instructions from the user
+
+- **One instruction at a time.** Not options, not "if X then Y". Literal paths
+  for the machine they are on — the Beelink/kiosk user folder is
+  `Yap Family Dashboard`, this PC's is `user`. ⚠️ **Any path with a space needs
+  the PowerShell call operator:** `& "C:\Program Files\iloader\iloader.exe"`.
+- **Evidence before theories, and check the instrument before trusting the
+  evidence.** Sessions 20-25 each lost time to an instrument rather than a fault.
+
+---
+
+## Session 25 outcomes (2026-07-27)
+
+### Priority 1 is CLOSED — all four Android tests pass on `84aac2e`
+
+| # | Test | Result |
+|---|---|---|
+| 1 | **Accept/Decline appear instantly** | ✅ "Buttons are almost immediate" — the 5s spinner is gone |
+| 2 | **Decline from that early window** | ✅ press registered, kiosk call ended, phone returned to launcher |
+| 3 | **Missed call on Android** | ✅ "Missed call — Yap Family called at 8:39pm" |
+| 4 | **A decline produces no note** | ✅ nothing posted |
+
+⚠️ Test 1 does **not** shorten the connect, and that was confirmed with the user
+as the thing actually bothering them. Ring-to-talking is unchanged.
+
+### The missed-call notification was posted and never shown (`84aac2e`)
+
+First test produced nothing. The diagnosis, in order, because the order is the
+point:
+
+1. **The "Missed calls" notification channel existed on the Oppo.** `ensureChannel()`
+   inside `postMissedCall()` is the only thing that creates it, so the function
+   had run. That single reading killed "never reached" without placing a call.
+2. **No `setNotificationHandler` existed anywhere in the app** — `7873da9` removed
+   it along with the local iOS notification. Expo SDK 56 docs, verbatim: *"The
+   default behavior when the handler is not set or does not respond in time is
+   not to show the notification."* (checked against the versioned docs, not
+   assumed).
+3. **Foreground is exactly when ours arrived.** `CallOverlay` posted it and called
+   `returnToAndroidHome()` → `BackHandler.exitApp()` in the same tick, so delivery
+   landed mid-exit-transition while the app still counted as active.
+
+Fixed three ways in `84aac2e`:
+- `setNotificationHandler`, **scoped by a `data` tag to our own notification**. A
+  handler is global; returning "show" for everything would put a banner over a
+  foreground incoming ring, which is the bug `7873da9` removed.
+- The post is **awaited** before `returnToAndroidHome()`. Unawaited it lost the
+  race with `exitApp()` every time, because it awaits channel creation first.
+- `debugLog` on **both** the success and failure paths.
+
+⚠️ **`console.log`/`console.warn` go NOWHERE on the Oppo** — no adb, and
+`debugLog` is a separate buffer that does not capture the console. So
+`postMissedCall`'s "errors are reported, never swallowed" was true in code and
+useless in practice: a post that succeeded, one that threw, and one never reached
+all read identically as nothing on the lock screen. Anything worth diagnosing on
+a phone must go through `debugLog`.
+
+### `endCall ok` distinguishes a decline from a ring-out — use it
+
+A reported "missed call tested — no notification" was **not a missed call**. The
+strip read `#1 call seen` → `returnHome: called` 7.6s later → `endCall ok`.
+`endCall ok` is logged only from `IncomingCallScreen.js:379` (decline) and
+`ActiveCallScreen.js:65` (hangup); a call that rings out and is cancelled from the
+kiosk produces neither. So the phone had declined, and **no notification was the
+correct behaviour**. The re-run with nothing touched passed immediately.
+
+### SideStore: the pairing file was never the problem — the VPN was
+
+Kath's **old** phone (the spare; its device name is "Kathryn", which is not the
+same phone) stopped refreshing. Error:
+
+> Failed to refresh 2 apps. SideStore could not determine this device's UDID.
+> Please replace your pairing using iloader.
+
+**That message is a liar.** Three pairing files were placed via iloader —
+including a full `Delete Stored Pairing` + regenerate — with no effect. The actual
+cause: **LocalDevVPN was not connected.** SideStore reaches `lockdownd` on
+`127.0.0.1:62078` *through* the VPN; with it down it cannot read the UDID and
+blames the pairing. One toggle fixed it instantly; both apps went to **7 days**.
+
+⚠️ The note "SideStore brings up LocalDevVPN itself, no connect step needed" was
+**wrong** — the VPN merely happened to be up on the day that was verified.
+Corrected in memory. The midnight automation is now:
+
+1. **Connect to LocalDevVPN VPN** (iOS's built-in `Set VPN` action does reach it)
+2. **SideStore "Refresh All Apps"**
+
+Verified by turning the VPN **off**, then running the automation with ▶: it
+brought the VPN up itself and refreshed clean. `Notify When Run` turned back ON
+for a few nights. **Next morning's check: 7 days = it ran locked and unattended;
+6 = it did not.**
+
+⚠️ **Apple's 30-day pairing expiry is real but was NOT the cause here.** *"On
+devices with iOS 11 and iPadOS 13.1, or later, if a pairing record hasn't been
+used for more than 30 days, it expires"* — Apple Platform Security, "Physical
+pairing model security". A second opinion confirmed the hypothesis confidently
+and it was still the wrong diagnosis; the tell that killed it was the phone
+**not** prompting "Trust This Computer", i.e. the host pairing was alive all
+along. Confident agreement is not evidence.
+
+**The structural problem it raised is still open** and is why Priority 3 exists:
+on-device refresh does not touch the pairing record's last-used timestamp, only a
+host connection does. An always-on LAN host running `idevicepair validate` weekly
+keeps it alive **while the phone is on the home network** — which does not cover
+Kath overseas for weeks, the exact case the app exists for. Untested idea worth
+one experiment on the spare: the house already runs **Tailscale**, so if her
+phone joined the tailnet the Beelink could touch the record from anywhere.
+Unknowns: whether `lockdownd` accepts a session over a `utun` interface, and that
+mDNS discovery won't cross Tailscale so it must be pointed at the tailnet IP.
+
+### Not done
+
+Priority 2 (iOS missed call) — instruction was issued at 20:45 and quiet hours
+closed the window. Priority 3 (the iOS build) untouched. No strip removal.
+
+---
+
+## Session 25 kickoff prompt (completed — see outcomes above)
 
 **Android calling is verified. Everything open is a test of code already written,
 already pushed, and already installed. No build is needed for Priorities 1 or 2.**
