@@ -1,5 +1,141 @@
 # yap-family-companion — Session Handoff
 
+## Session 27b — CONTINUE ON THE BEELINK (start here)
+
+Session 27 ran from the work PC over remote desktop and stopped because every
+remaining test needs the kiosk. **Everything below was established first; do not
+re-derive it.**
+
+### First three commands on the Beelink
+
+```powershell
+Get-Date -Format 'yyyy-MM-dd HH:mm tt'
+& git -C "C:\Users\Yap Family Dashboard\Desktop\Digital Dashboard\yap-family-home" pull
+& git -C "C:\Users\Yap Family Dashboard\Desktop\Digital Dashboard\yap-family-companion" pull
+```
+
+The kiosk repo is the one that matters on that machine and it **drifts** — it was
+5 commits behind at the start of session 26. If the companion repo is not present
+on the Beelink, that is fine; read this file from GitHub instead. ⚠️ The Beelink
+user folder is `Yap Family Dashboard`, and **every path there has a space, so it
+needs the PowerShell call operator** — `& "C:\Path With Spaces\app.exe"`.
+
+⚠️ **QUIET HOURS 21:00–07:00 SGT block every outgoing call. No override, ever.
+Check am/pm.**
+
+### Settled in session 27 — do not re-test
+
+| finding | evidence |
+|---|---|
+| **Priority 1 CLOSED.** SideStore auto-refresh holds | **7 days** on both apps on the spare — the midnight automation ran **locked and unattended**, so the LocalDevVPN step works. Second consecutive verification. |
+| **A fresh iOS build is installed on the spare** | Dispatched from `main`; strip reads **`b=a1fe32b`**, confirmed on device. `a1fe32b` is docs on top of `84aac2e`, so the code is current `main`. |
+| **The spare is signed in as `kath`** | strip reads `me=kath` |
+| repos current | companion `a1fe32b`, kiosk `ddc2703`, both clean, both fetched |
+
+⚠️ **The session-27 build supersedes `7873da9` deliberately.** `7873da9` was three
+code commits stale, and one of them — `61a9b4a`, the banked Accept/Decline during
+the connect — is **cross-platform and had never been built for iOS**. Installing
+the older IPA would have tested the wrong binary and left Sunday as that code's
+first iOS run. Old Priority 2 is therefore superseded, not skipped.
+
+### ⚠️⚠️ "Kath's phone" has meant TWO DIFFERENT PHONES all along
+
+**Bark is not installed on Kath's current phone and never has been.** The Bark
+device key the kiosk sends to — `hMct2EY…`, `VITE_BARK_KEY_KATH`, one key per user
+at `streamVideo.js:96` — is registered to **the spare** (her *old* phone, device
+name "Kathryn"). Confirmed by the user, 2026-07-29.
+
+So every result recorded as *"tested on Kath's phone"* — including the 2026-07-26
+`id`-replacement test that proved a delivered critical alert can be recalled — was
+taken **on the spare**. The findings stand; the device attribution in TODO and in
+`project_bark_ios_ring` was wrong.
+
+**Two consequences, both load-bearing:**
+
+1. **Testing is safe right now.** A kiosk call to `kath` rings the spare over
+   Stream *and* sends the Bark critical alert to the spare. **Nothing reaches Kath
+   overseas.** This was checked before ringing precisely because a continuous
+   silent-bypassing Critical Alert at an unknown local hour is not recoverable.
+2. **Sunday 2 August is a FULL FIRST-TIME SETUP, not a reinstall.** Kath's current
+   phone needs, from nothing: LocalDevVPN + iloader pairing, SideStore (Stable),
+   the companion IPA via SideStore's own **+** picker, the midnight Shortcuts
+   automation (Connect VPN → *Refresh All Apps*), **Bark installed and its key
+   put into `VITE_BARK_KEY_KATH` on Vercel → Production → redeploy**, Critical
+   Alerts ON, Show Previews = Always, Banner Style = Persistent. Budget hours, not
+   minutes. Sequence: [[project_sidestore_refresh]] and [[project_bark_ios_ring]].
+
+### Priority A — the duplicate-notification test (the one that was interrupted)
+
+The instruction that was live when the session stopped, unchanged:
+
+1. At the **Beelink kiosk**, call **Kath**. Answer on the spare, let it connect.
+2. Hang up from the **kiosk's red button**, and **lock the spare immediately**.
+3. Call **Kath** again from the kiosk. Do not touch the phone.
+4. Photograph the spare's lock screen.
+
+**PASS = Bark only** — one "Yap Family calling / Tap to answer" critical alert,
+ringing. **FAIL = a quiet "Yap Family is calling" banner appears instantly and
+Bark arrives ~5s later.** That duplicate is what `7873da9` removed and what this
+build carries.
+
+⚠️ **`61a9b4a` is also under test here and nobody planned it that way** — this is
+its first iOS run. Watch the incoming-call screen for **live Accept/Decline
+buttons instead of a spinner**, and note anything odd about accepting.
+
+### Priority B — a decision owed to the user, now dated
+
+**The $99 Apple Developer account.** The case is written up under session 25's
+SideStore section — **do not re-argue it from scratch, ask where they have
+landed.** It is more urgent than it was this morning: Sunday is now a from-scratch
+setup on Kath's phone, so buying it changes what gets built on Sunday rather than
+starting a fresh 7-day treadmill on a phone that has never been on one.
+
+### Priority C — needs Kath's phone, so it cannot happen before Sunday
+
+The iOS missed call: call her iPhone from the kiosk, let it ring out untouched,
+end it from the kiosk's red hang-up button, confirm the critical alert is
+**replaced in place** by "Missed call" — one notification, not two. ⚠️ **Given the
+finding above, this can be run on the SPARE today instead** — the spare holds the
+Bark key, which is the entire mechanism under test. Do that if there is clock left
+after Priority A.
+
+### Standing rules — these cost sessions 20-26
+
+1. **ASK WHICH MACHINE A CONSOLE IS ON.** A bookmarks bar or window chrome in a
+   screenshot means it is **not** the Beelink's fullscreen kiosk.
+2. **One artifact from each side of the SAME call, or it is not evidence.** Never
+   reason about a decline without `#N call seen` **and** `reject ok` on the phone
+   and the **same call id** on the kiosk.
+3. **Read the SDK source before theorising** —
+   `node_modules/@stream-io/video-client/dist/index.es.js` (`dist/src/` is `.d.ts`
+   only). Ten minutes there beat four hypotheses.
+4. **One instruction at a time.** Not options, not "if X then Y".
+5. **Do NOT strip the debug code.** Decisive again in session 26.
+6. **Do NOT dispatch an Android build.** Android is closed — the July 29
+   complaints were a lost `USE_FULL_SCREEN_INTENT` grant, fixed with one toggle.
+   Two fixes are batched for whenever a build is next needed anyway: timeouts on
+   the decline path, and a manual re-entry point for the full-screen-intent
+   permission.
+
+### When the Beelink session ends — handover back
+
+Append a **"Session 27b outcomes"** section to this file recording, for each test:
+what was run, on which machine, and the artifact it produced. Then:
+
+```powershell
+& git -C "C:\Users\Yap Family Dashboard\Desktop\Digital Dashboard\yap-family-companion" add TODO.md
+& git -C "C:\Users\Yap Family Dashboard\Desktop\Digital Dashboard\yap-family-companion" commit -m "docs: session 27b outcomes"
+& git -C "C:\Users\Yap Family Dashboard\Desktop\Digital Dashboard\yap-family-companion" push
+```
+
+If the companion repo is not on the Beelink, write the outcomes into the kiosk
+repo's `TODO.md` under a clearly-marked *"companion session 27b"* heading, push
+that, and say so — a result recorded in the wrong repo still beats one lost.
+**Anything that changed on Vercel, in Stream, or on a phone must be written down;
+the next session cannot see any of it.**
+
+---
+
 ## Session 27 kickoff prompt — iPhone
 
 **Android is in a good place and is NOT the job this session. iOS is, and it has
