@@ -1,6 +1,96 @@
 # yap-family-companion — Session Handoff
 
-## Session 26 kickoff prompt
+## Session 27 kickoff prompt — iPhone
+
+**Android is in a good place and is NOT the job this session. iOS is, and it has
+a deadline: Kath is back Sunday 2 August 2026.**
+
+Read this file and the memory index first. Companion `main` — last **code** commit
+is `84aac2e`. Kiosk `main` at **`ddc2703`**, pushed and deployed to Vercel (bundle
+`index-C_CyEBwL.js`). The Fly backend needs nothing.
+
+⚠️ **`git fetch --all` in BOTH repos before searching for anything.** The kiosk
+drifts; it was 5 commits behind at the start of session 26.
+
+⚠️ **QUIET HOURS BLOCK ALL CALL TESTING, 21:00–07:00 SGT.** No override, ever.
+**Check the clock first and check am/pm** — `Get-Date -Format 'HH:mm tt'`.
+
+### ⚠️ Read these two before touching a console — both cost session 26 dearly
+
+1. **ASK WHICH MACHINE THE CONSOLE IS ON.** Every kiosk reading in session 26 came
+   from the user's **work PC**, a second browser signed in as `family-hub`, while
+   the screen being judged was the **Beelink**. That client worked perfectly the
+   whole time. Hours of hypotheses were fitted to the machine that wasn't failing.
+   **The tell is in the screenshot: a bookmarks bar and window chrome mean it is
+   NOT the Beelink's fullscreen kiosk.**
+2. **One artifact from each side of the SAME call, or it is not evidence.** Never
+   reason about a decline without `#N call seen` AND `reject ok` on the phone, and
+   the **same call id** on the kiosk. Session 26 paired a phone strip with a kiosk
+   console from a different call and reported the conclusion as settled.
+
+**And: read the SDK source before theorising.** `node_modules/@stream-io/
+video-client/dist/index.es.js` (the `dist/src/` folder is `.d.ts` only). Ten
+minutes there answered more than four hypotheses combined.
+
+### Priority 1 — SideStore on the spare iPhone (30 seconds, gates everything)
+
+**Asked four times in session 26 and never answered.** Open SideStore on the spare
+iPhone and read the day count against each of the two apps. **7 days = the midnight
+automation ran locked and unattended and the VPN fix holds; 6 = it did not.**
+`Notify When Run` is ON, so also ask whether a notification appeared overnight.
+
+Nothing else on iOS is safe to plan until this is known — a signing treadmill that
+has quietly stopped changes what Sunday has to achieve.
+
+### Priority 2 — the iOS build of `7873da9`, still never installed
+
+Waiting since **session 22**. Removes the duplicate "Yap Family is calling"
+notification. Reproduce with: answer, hang up, lock the phone immediately, call
+again. Before the fix: a quiet banner instantly and Bark ~5s later. After: Bark
+only. Can be installed on the spare now; Kath's own phone needs Sunday.
+
+### Priority 3 — the iOS missed call (needs Kath's phone, so Sunday)
+
+Kiosk-side and already live. Call Kath's iPhone from the kiosk, let it ring out
+untouched, then end it from the kiosk's red hang-up button. Confirm the
+"Yap Family calling / Tap to answer" critical alert is **replaced in place** by
+"Missed call" — **one** notification, not two. Issued in session 25, again in 26,
+never run.
+
+### Priority 4 — the $99 Apple Developer account, now dated
+
+**Decide before Sunday.** If it is bought, Sunday's reinstall on Kath's phone
+should be the one that uses it rather than starting another 7-day treadmill. The
+case is written up under session 25's SideStore section — **do not re-argue it from
+scratch. Ask where the user has landed.**
+
+### Batched for the next Android build — do NOT dispatch one just for these
+
+Nothing on Android needs a build urgently. When one is next dispatched, include:
+
+1. **Timeouts on the decline path.** Neither `await call.reject()` nor
+   `await call.endCall()` in `IncomingCallScreen.decline()` has one; `withTimeout`
+   was only ever applied to `join()`. A stall strands the phone on "Ending…"
+   forever with nothing logged. Seen once in session 26, not reproducible.
+2. **A manual re-entry point for the full-screen-intent permission.** It silently
+   degrades every incoming call, cannot be read back from JS, and its prompt is
+   gated behind a one-shot key last bumped in `a999a0e` — **55 commits ago**.
+   Bumping the suffix again buys one prompt and leaves the same hole.
+
+**Do not strip the debug code.** The strip was decisive again in session 26.
+
+### Two standing instructions from the user
+
+- **One instruction at a time.** Not options, not "if X then Y". Literal paths for
+  the machine they are on — the Beelink/kiosk user folder is `Yap Family Dashboard`,
+  this PC's is `user`. ⚠️ **Any path with a space needs the PowerShell call
+  operator:** `& "C:\Program Files\iloader\iloader.exe"`.
+- **Evidence before theories, and check the instrument before trusting the
+  evidence.** Sessions 20-26 each lost time to an instrument, not a fault.
+
+---
+
+## Session 26 kickoff prompt (completed — see outcomes below)
 
 **Priority 1 (Android) is CLOSED — all four tests pass on `84aac2e`, installed on
 the Oppo. Do not re-open it.** One iOS test is outstanding and needs no build.
@@ -60,6 +150,249 @@ the four unexplained items are still unexplained failures on the Oppo.
   the PowerShell call operator:** `& "C:\Program Files\iloader\iloader.exe"`.
 - **Evidence before theories, and check the instrument before trusting the
   evidence.** Sessions 20-25 each lost time to an instrument rather than a fault.
+
+---
+
+## Session 26 outcomes (2026-07-29)
+
+### The Android "regression" was a lost OS permission, not code
+
+Reported: no full-screen ring on the Oppo, only a narrow banner, plus a missing
+missed-call notification. Matrix taken on the Oppo, strip confirmed **`b=84aac2e`**
+(the build session 25 signed off, so not a stale install):
+
+| # | app | screen | full screen | banner | missed call |
+|---|---|---|---|---|---|
+| 1 | open | on | ✅ (the app's own ring screen) | ✅ | ✅ |
+| 2 | open | off | ❌ | ✅ | ✅ |
+| 3 | off | on | ❌ | ✅ | ✅ |
+| 4 | off | off | ❌ | ✅ | ❌ |
+
+**Cause: `USE_FULL_SCREEN_INTENT` special app access was OFF for Yap Family.**
+Confirmed on the device. `App.js:541-546`, written after session 15, documents
+this signature verbatim — *Android demotes the full-screen intent to a heads-up
+banner, MainActivity never launches, and `turnScreenOn` never fires*. Rows 2-4
+are that, exactly.
+
+⚠️ **Row 4's missing missed call is probably a symptom of the same thing, not a
+second fault.** `postMissedCall` is called from `CallOverlay`; if MainActivity
+never launches, `CallOverlay` never mounts and nothing posts. To be confirmed by
+re-running the matrix after granting.
+
+⚠️ **Row 1 is probably NOT a regression of `84aac2e`.** The handler at
+`missedCall.js:44-55` returns `shouldShowBanner: false` for anything without the
+`yapMissedCall` data tag, so it cannot be adding a banner. Stream's incoming-call
+notification is posted natively and never passes through a JS handler. A
+foreground ring showing the app's own screen *plus* Stream's banner is most
+likely long-standing behaviour that had never been observed, because no previous
+session rang the phone with the app in the foreground.
+
+### Why the app stopped asking for the permission — user observation, confirmed
+
+The user noted that every new install used to prompt for full-screen
+notifications and the last one did not. **They were right and my first
+explanation was wrong.** The prompt is one-shot, gated on an AsyncStorage key,
+and the key was bumped three builds running — `265e02b` (unsuffixed) →
+`284d0d4` (`_v2`) → `a999a0e` (`_v3`). **`a999a0e` was the last bump, and there
+have been 55 commits since.** So the prompt has been silent since session 15 on
+any install-over-the-top; the installs that did re-prompt after that were ones
+where the app was uninstalled first, which wipes AsyncStorage.
+
+### Granting it fixed rows 2-4, including the missed call — CONFIRMED
+
+Permission turned ON, then row 4 re-run (app force-closed, screen off): **full
+screen woke the phone, and the missed-call notification arrived.** So row 4 was a
+symptom of the permission, not a second fault, exactly as predicted. No build was
+needed for any of it.
+
+### The "5-10s delay ending the call" is ~2-3s, and nothing is timing out
+
+Reported after the fix: the phone kept showing the call for 5-10s after hang-up
+at the kiosk. Measured from the strip, `#N call seen` → `missed: posted`:
+
+| call | gap | how it was ended |
+|---|---|---|
+| #1 | 15.67s | let ring |
+| #2 | 15.11s | let ring |
+| #3 | 8.80s | let ring, shorter |
+| #4 | **5.06s** | hung up at ~3s, deliberately |
+
+⚠️ **A fixed-timeout hypothesis was formed on #1 and #2 landing 0.5s apart and
+was killed by #3 before #4 arrived.** Two calls of similar length look identical
+to a timeout. The gap tracks ring duration, so the cancel *is* being delivered.
+
+Netting off ring time and the ~1.4s the phone spends on `connect:` before it even
+sees the call, the real kiosk-hangup → phone-clears lag is **~2-3s**. Most of
+what was felt as delay is the phone's connect, which happens before `#N call
+seen` and is invisible from the kiosk. **Polish, not a fault. Not being chased.**
+
+### ⚠️ Instrument correction: the strip SURVIVES a call
+
+Recorded here because it was stated wrongly mid-session and it changes how every
+future reading is taken. `debugLog.js` is in-memory only, so the strip was
+expected to die when `returnToAndroidHome()` → `BackHandler.exitApp()` runs. It
+does not: four calls spanning ~25 minutes sat in one buffer. `exitApp()`
+backgrounds the app rather than killing the process. **The strip can be read
+after a call — it does not have to be photographed during one.**
+
+### Decline never was a delivery bug — the kiosk just never closed its screen
+
+Reported: decline on the phone does not end the kiosk call. Chain, every link
+evidenced:
+
+1. **The phone's decline succeeds.** `reject()` then `endCall()`, both 200 —
+   strip read `reject ok` at `58:01.346` and `endCall ok` at `58:01.607`. The
+   call really ends.
+2. **The kiosk knows.** Its SDK reacts to the coordinator event by calling
+   `leave({ reject: true })` **itself**. Proven by the stack: `JF.onmessage →
+   ZF.dispatchEvent → leave → reject`, with **no frame from our code**. And
+   `useCalls()` drops to `0 (none)`.
+3. **That SDK reject 400s.** It POSTs to a call that has already ended → *"Cannot
+   accept/reject a call that is not in progress"*, as an **uncaught** rejection
+   inside the SDK's own leave.
+4. **So the leave never completes**, `callingState` never reaches `LEFT`, and
+   `VideoCallOverlay.jsx:105` — the only thing that dismisses the overlay — never
+   runs. The kiosk sits on "Calling Dad…".
+
+Both fallbacks under it were already dead: `call.rejected` is not delivered
+(settled session 18), and the `rejected_by` poll reads `[]` because the call is
+gone before a rejection can be observed on it.
+
+**Fixed kiosk-side in `ddc2703`** — a `call.ended` listener that calls
+`onLeave()`, alongside the `LEFT` effect rather than replacing it. Plus the two
+`.catch(() => {})` on the decline paths now log. **No app build was needed.**
+New bundle: **`index-C0bLweHD.js`** (was `index-DKAgh5vE.js`).
+
+⚠️ **Two wrong leads were followed first, both worth not repeating.** The
+`useCalls()` leak (count reached 5-6 stale `:left` calls) looked causal and was
+not — after a hard reload the count returned cleanly to 0 and decline still
+failed. And an SFU `1006` WebSocket failure (`Failed to join call`) appeared on
+one call and never recurred: **intermittent, still unexplained, not the decline
+bug.** Kept open below.
+
+⚠️ **The pre-join placeholder and `CallLayout`'s waiting state render identical
+markup by design** (`VideoCallOverlay.jsx:344`) — the same trap session 23
+recorded with `IncomingCallPlaceholder`. A screenshot cannot tell them apart. The
+tell is the console: `[call] watching this call: true` requires the call object,
+so it only prints from `CallLayout`.
+
+⚠️ **The placeholder branch (`!error && !call`) still has NO end-detection** —
+only a manual hangup button. A decline arriving before `startCall()` resolves
+would strand it the same way. Not hit in testing, not fixed. Open.
+
+### What the Stream SDK source actually says (read, not inferred)
+
+`node_modules/@stream-io/video-client/dist/index.es.js` — the real implementation
+(`dist/src/` is `.d.ts` only).
+
+1. **The reject 400 is SDK-internal and harmless.** `watchCallRejected` (:9741):
+   the kiosk **is** the call creator, so when the only other member rejects, the
+   SDK itself calls `leave({ reject: true, reason: 'cancel' })`. The phone's
+   `endCall()` has already ended the call, so Stream answers *"not in progress"*.
+   Hours were spent treating this as a lead. It is noise.
+2. **⚠️ "`call.rejected` is never delivered" (session 18) is WRONG as written.**
+   `watchCallRejected` returns early unless `callingState === RINGING` (:9737),
+   and the kiosk joins immediately so it is JOINED. **The SDK's handler ignores
+   the event; the event itself arrives.** Which is exactly why the hand-rolled
+   listener at `VideoCallOverlay.jsx:133` works. Restate it that way.
+3. **There is no "wrong call object" mechanism.** `Call.on()` (:14036) subscribes
+   to the *shared* client socket and filters on `event.call_cid === this.cid`.
+   No per-call subscription to go stale; any Call with a matching cid gets it.
+
+### Decline VERIFIED working on `ddc2703` — matched pair, same call id
+
+The first evidence all session where both sides are provably the same call
+(`family-hub-adrian-1785299075001`), on bundle `index-C_CyEBwL.js`:
+
+| side | reading |
+|---|---|
+| phone | `#1 call seen 25:01.292` → `reject ok 25:23.188` → `endCall ok 25:23.663` |
+| kiosk | `<< event: call.rejected` → `callee rejected, ending call: adrian` |
+| kiosk | `poll — rejected_by: ['adrian']` → `count: 0 (none)` → `onClose` |
+
+Both the event path AND the poll fired. The callee waited **22s** before
+declining, so it is not a narrow timing window.
+
+⚠️ **Still unverified: a SECOND call in the same page session.** Every confirmed
+decline today was the first call after a load.
+
+### ⚠️⚠️ THE ONE THAT COST THE SESSION: the console was a DIFFERENT MACHINE
+
+**Every kiosk console reading on 2026-07-29 came from the user's work PC**, not
+the Beelink — a second browser signed in as `family-hub`, watching the same
+calls. The screen being judged ("the kiosk call kept going") was the **Beelink**,
+for which there was **no console evidence at all**.
+
+That client was working correctly the whole time: it received `call.rejected`,
+recorded `rejected_by: ['adrian']`, and closed its overlay. So an afternoon of
+hypotheses were fitted to the machine that wasn't failing — they are not wrong so
+much as **answering a question nobody asked**.
+
+⚠️ TODO has warned since session 20: *"Test hardware differs: confirm whether a
+kiosk reading came from the Beelink or the upstairs PC."* The tell was in every
+screenshot — a bookmarks bar and window chrome, which the Beelink's fullscreen
+kiosk does not have. **Before accepting any kiosk console, ask which machine it
+is on, and check the screenshot for window chrome.**
+
+### On the Beelink itself: decline works, with an intermittent hang
+
+Tested directly on the Beelink, no second client involved:
+
+- **Decline from the phone's full-screen call screen ends the Beelink call.** ✅
+- **Decline from the notification banner also works.** ✅
+- **Seen once, then not reproducible: the phone stranded on "Ending…"** —
+  `busy === 'declining'`, set synchronously at the top of `decline()`, so the
+  function had started and never finished.
+- A banner flashes briefly *after* a successful decline, then clears. Cosmetic.
+- Which presentation appears (banner / full screen / both) looks random but almost
+  certainly tracks the three device states + app-in-foreground (session 23).
+  **Record lock state with every future observation** or it stays "random".
+
+⚠️ **Open, and worth fixing on the next build regardless:** neither
+`await call.reject()` nor `await call.endCall()` in `IncomingCallScreen.decline()`
+has a timeout — `withTimeout` was only ever applied to `join()`. If either stalls,
+nothing is logged and the screen strands on "Ending…" forever. That is precisely
+the observed symptom, and today it was **invisible**: no line on the strip either
+way. Wrapping both in `withTimeout`, logging which one timed out, and releasing
+`busy` would make the next occurrence self-reporting.
+
+### ⚠️ How this session burned two hours — process, not code
+
+Four hypotheses were formed and discarded before the SDK was read: a fixed
+timeout (killed by call #3's 8.80s), the `useCalls()` stale-call leak (killed by
+a reload that cleared it while decline still failed), the overlay not closing
+(shipped as `ddc2703`, and its premise — that `call.ended` arrives — was false),
+and "the second call is damaged".
+
+**The root process error: pairing a phone strip with a kiosk console from a
+DIFFERENT call**, then reporting the conclusion as settled. Two of the four
+"failures" also had no confirmed decline in them at all — the strip showed the
+phone still on Decline/Accept.
+
+**Rule for next time: never reason about a decline without `#N call seen` AND
+`reject ok` on the phone, and the SAME call id on the kiosk. One artifact from
+each side of the same call, or it is not evidence.** Reading the SDK source took
+~10 minutes and answered more than all four hypotheses combined — do it first.
+
+### Still open after this session
+
+- **SFU WS `1006`** — one call failed to join the SFU entirely (`Join SFU request
+  failed`, `Failed to join call (0)`). Coordinator socket was healthy at the time.
+  Seen once, not reproduced. If it recurs, check whether it is Beelink-specific
+  by loading the same kiosk URL on the upstairs PC.
+- **720p, not 1080p.** Confirmed on the kiosk camera: `[cam] post-enable
+  {"frameRate":30,"height":720,"width":1280}`. This is Priority 4 as written —
+  proposed in session 23, deliberately never implemented. Not a regression.
+- **`[sdk] [devices]: Failed to get video stream` / `Camera init failed` on the
+  phone**, three times, always at `connect:` time while the app is backgrounded.
+  Android blocks background camera access, so this is *probably* benign. Not
+  confirmed either way.
+
+**Open code item for the next build.** A permission that silently degrades every
+incoming call, cannot be read back from JS, and is gated behind a one-shot flag
+needs a **manual re-entry point in the app** — a "Fix call settings" action the
+user can hit any time. Bumping the suffix again only buys one more prompt and
+leaves the same hole open for the next revocation.
 
 ---
 
