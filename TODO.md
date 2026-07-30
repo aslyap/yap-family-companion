@@ -1,5 +1,125 @@
 # yap-family-companion — Session Handoff
 
+## Session 27d — MOVE TO THE BEELINK, iPhone call tests (start here)
+
+**Nothing about SideStore is outstanding. It is fixed — see the SOLVED section
+below and do not re-open it.** What is outstanding is the iPhone *call* testing,
+which has now been waiting since session 22 and needs the kiosk.
+
+### First three commands on the Beelink
+
+```powershell
+Get-Date -Format 'yyyy-MM-dd HH:mm tt'
+& git -C "C:\Users\Yap Family Dashboard\Desktop\Digital Dashboard\yap-family-home" pull
+& git -C "C:\Users\Yap Family Dashboard\Desktop\Digital Dashboard\yap-family-companion" pull
+```
+
+⚠️ The kiosk repo **drifts** — it was 5 commits behind at the start of session 26.
+⚠️ The Beelink user folder is `Yap Family Dashboard`; **every path has a space, so
+use the call operator** — `& "C:\Path With Spaces\app.exe"`.
+⚠️ **QUIET HOURS 21:00–07:00 SGT block every outgoing call. No override. Check am/pm.**
+
+### State going in
+
+| thing | state |
+|---|---|
+| Companion `main` | this commit (docs). Last **code** commit `84aac2e` |
+| Kiosk `main` | `ddc2703`, deployed, bundle `index-C_CyEBwL.js` |
+| Fly backend | needs nothing |
+| Spare iPhone | build **`b=a1fe32b`**, `me=kath`, SideStore refresh WORKING, 7 days |
+| Bark key `hMct2EY…` | on the **spare**, NOT on Kath's phone |
+
+⚠️ **A kiosk call to `kath` rings the spare and Barks the spare. Nothing reaches
+Kath overseas.** Verified 2026-07-30.
+
+### Test 1 — the duplicate notification (Priority A, waiting since session 22)
+
+1. At the **Beelink kiosk**, call **Kath**. Answer on the spare, let it connect.
+2. Hang up from the **kiosk's red button**, then **lock the spare immediately**.
+3. Call **Kath** again from the kiosk. Don't touch the phone.
+4. Photograph the lock screen.
+
+**PASS = Bark only**, one "Yap Family calling / Tap to answer" critical alert.
+**FAIL = a quiet "Yap Family is calling" banner instantly, with Bark ~5s later.**
+That duplicate is what `7873da9` removed and this build carries.
+
+### Test 2 — `61a9b4a`'s first ever iOS run (nobody planned this)
+
+Under test at the same time, because `a1fe32b` is the first iOS build to include it.
+On the incoming call, watch for **live Accept/Decline buttons instead of a
+spinner**, and note anything odd about accepting.
+
+### Test 3 — the iOS missed call (no longer needs Kath's phone)
+
+⚠️ **Previously blocked on Sunday; it is not.** The spare holds the Bark key, and
+the key is the whole mechanism. Call the spare from the kiosk, **let it ring out
+untouched**, then end it from the kiosk's **red hang-up button**. Confirm the
+"Yap Family calling / Tap to answer" alert is **replaced in place** by
+"Missed call" — **one** notification, not two. Issued in sessions 25, 26 and 27,
+never run.
+
+### Test 4 — tomorrow morning, 30 seconds, and it gates Sunday
+
+Open SideStore on the spare and read the day count. **7 days = the midnight
+automation fired locked and unattended on the new RPPairing file.** 6 = it didn't.
+This is the only evidence that Kath's Sunday setup can be trusted to survive
+without a computer nearby.
+
+### Then: Sunday 2 August — Kath's phone, full first-time setup
+
+Not a reinstall. From nothing, and **budget hours**:
+
+1. **Pair with `idevice_pair`, NEVER iloader** (uninstalled — see SOLVED below).
+   Generate → **Validate** → **Install**. The file must contain **`alt_irk`**.
+2. Install SideStore itself with **Sideloadly** over USB (free Apple ID).
+3. Companion IPA from **inside SideStore** via its **+** picker — only apps
+   SideStore manages get refreshed.
+4. Shortcuts automation: **Time of Day 12:00 AM daily, Run Immediately** →
+   Connect to LocalDevVPN VPN → **Wait 5s** → Refresh All Apps.
+5. **LocalDevVPN → `Auto Connect on Launch` ON.**
+6. **Bark**: install, grant **Critical Alerts**, **Show Previews = Always**,
+   **Banner Style = Persistent**, then put her device key into
+   `VITE_BARK_KEY_KATH` on **Vercel → Production → redeploy** (Vite bakes env at
+   build time).
+7. **Refresh once and confirm 7 days. Then leave it locked overnight and confirm
+   7 days again BEFORE she travels.** This is the step that must not be skipped —
+   the failure mode is a setup that looks fine and dies days later out of reach.
+
+### Standing rules — these cost sessions 20–27
+
+1. **ASK WHICH MACHINE A CONSOLE IS ON.** A bookmarks bar or window chrome means
+   it is **not** the Beelink's fullscreen kiosk.
+2. **One artifact from each side of the SAME call, or it is not evidence** —
+   `#N call seen` **and** `reject ok` on the phone, same call id on the kiosk.
+3. **Read the source before theorising** —
+   `node_modules/@stream-io/video-client/dist/index.es.js` (`dist/src/` is `.d.ts`).
+4. **Get the KNOWN-GOOD reading before explaining the bad one.** A matched pair of
+   SideStore logs killed three confident theories in minutes today.
+5. **Verify tool capabilities before acting on them** — two fabricated commands
+   were acted on today.
+6. **One instruction at a time.** Not options, not "if X then Y".
+7. **Do NOT strip the debug code.**
+8. **Do NOT dispatch an Android build.** Android is closed. Two fixes are batched
+   for whenever one is next needed: timeouts on the decline path
+   (`IncomingCallScreen.decline()` — neither `reject()` nor `endCall()` has one),
+   and a manual re-entry point for the full-screen-intent permission.
+
+### Handover back when the Beelink session ends
+
+Append a **"Session 27e outcomes"** section: what was run, on which machine, and
+the artifact it produced. Then commit and push:
+
+```powershell
+& git -C "C:\Users\Yap Family Dashboard\Desktop\Digital Dashboard\yap-family-companion" add TODO.md
+& git -C "C:\Users\Yap Family Dashboard\Desktop\Digital Dashboard\yap-family-companion" commit -m "docs: session 27e outcomes"
+& git -C "C:\Users\Yap Family Dashboard\Desktop\Digital Dashboard\yap-family-companion" push
+```
+
+**Anything changed on Vercel, in Stream, or on a phone must be written down — the
+next session cannot see any of it.**
+
+---
+
 ## ✅ SOLVED (2026-07-30): stale RPPairing keys. The tool is `idevice_pair`.
 
 **SideStore refresh works again — both apps went 6 → 7 days, sign-in restored.**
