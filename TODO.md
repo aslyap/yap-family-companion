@@ -1,6 +1,97 @@
 # yap-family-companion — Session Handoff
 
-## Session 27c (2026-07-30) — SideStore refresh is BROKEN, cause isolated not fixed
+## ✅ SOLVED (2026-07-30): stale RPPairing keys. The tool is `idevice_pair`.
+
+**SideStore refresh works again — both apps went 6 → 7 days, sign-in restored.**
+Read this before touching pairing on any phone, including Kath's.
+
+### The cause
+
+The pairing file's **RemotePairing (RPPairing) block was stale and incomplete.** It
+carried `identifier` / `private_key` / `public_key` from an old identity and was
+**missing `alt_irk` entirely** — a field current iOS requires. That produced an
+**instant** `[minimuxer] ERROR: Failed to get UDID` (no timeout line), i.e. a
+connection accepted and then rejected on a failed cryptographic handshake.
+
+### The fix — 4 minutes, free, no paid account, no reinstall
+
+1. **`jkcoxson/idevice_pair`**, Windows v0.1.14 —
+   `https://github.com/jkcoxson/idevice_pair/releases`. Local copy at
+   `C:\Users\user\Downloads\idevice_pair-windows-x86_64.exe`.
+2. Phone on USB, unlocked. Pairing Type = **RPPairing**.
+3. **Generate** → produces the plist (`public_key`, `private_key`, `identifier`,
+   **`alt_irk`**). New identifier was `58c639c0-…` vs the stale `65f34248-…`.
+4. **Validate** → success. **Install** (its own SideStore button, writes into
+   `com.SideStore.SideStore.DGTDMWTY29`) → success.
+5. VPN on → SideStore → **sign in** → **Refresh All Apps**. Both apps 6 → 7 days.
+
+### ⚠️⚠️ `Wireless Debugging: MissingValue` IS A RED HERRING
+
+idevice_pair reports **the identical** `Failed: UnknownErrorType("MissingValue")`
+on that status line — and generate, validate and install all succeed anyway. So:
+
+- It is **not** an iloader bug (three tools report it: iloader, idevice_pair, and
+  pymobiledevice3 as "No such value").
+- It is **not fatal** and **not the cause of anything**. iloader treats it as fatal
+  and aborts at device-select; that is iloader's problem, and iloader is simply not
+  needed any more.
+- **Do not chase it again.** Hours went into it.
+
+### ⚠️ The mistake that cost this session, recorded so it is not repeated
+
+Every pairing file tested carried the **same RemotePairing triple** — it was
+deliberately carried over when building a "merged" file, and then the original was
+restored. So **the one variable that mattered was never varied**, while "the pairing
+file is exonerated" was being asserted. That conclusion only ever covered the
+**classic** lockdown record. `pymobiledevice3 lockdown save-pair-record` does not
+emit the RPPairing block at all, which is why it could not have fixed this either.
+
+Two further process failures worth naming:
+
+- **A second opinion fabricated two tool capabilities** —
+  `pymobiledevice3 developer core-device pair` (does not exist; `core-device` has 15
+  subcommands, none is `pair`) and Sideloadly's "Export pairing file" (does not
+  exist; verified in the v0.60 UI). Both were acted on. **Verify tool capabilities
+  before acting.**
+- **An "iloader is architecturally obsolete on iOS 17.4+" claim was asserted and was
+  false.** The user killed it on timing alone: iOS 17.4 shipped in 2024 and iloader
+  worked on this phone on 27 July. That challenge is what redirected the session to
+  the RemotePairing identity.
+
+### 🔑 The instrument that actually worked
+
+**SideStore writes a console log per launch, on the device, pullable over USB.**
+Nothing else in this stack told the truth.
+
+```powershell
+$c = "`nls Documents/ConsoleLogs`nexit`n"   # leading newline required — BOM
+$c | & python -m pymobiledevice3 apps afc com.SideStore.SideStore.DGTDMWTY29
+& python -m pymobiledevice3 apps pull com.SideStore.SideStore.DGTDMWTY29 `
+    "/Documents/ConsoleLogs/<name>.log" "<local>"
+```
+
+**Always pull the KNOWN-GOOD log too.** A matched pair (29 July worked / 30 July
+failed) killed three confident theories in minutes — the unreachable override peer
+`192.168.1.50`, `vpn peer: nil`, and "the network changed" — because all three are
+present in the run that **succeeded**, which was also on a different subnet.
+
+### What this changes for Kath
+
+- **Unattended 7-day refresh is viable again.** The $99 Apple Developer account is
+  no longer forced by a broken signing path. It remains a real option for its own
+  reasons (TestFlight OTA install, CallKit, retiring Bark) — but that is now a
+  choice, not a rescue.
+- **Sunday's setup must use `idevice_pair`, NOT iloader**, and must produce an
+  RPPairing file that includes `alt_irk`.
+- ⚠️ **Verify the nightly automation tomorrow morning** — 7 days again = it ran
+  locked and unattended. This fix restores refresh; it does not prove the automation
+  fires.
+- Still worth doing: **LocalDevVPN → `Auto Connect on Launch` ON** (it is off), and
+  a ~5s `Wait` between the VPN and refresh steps in the Shortcuts automation.
+
+---
+
+## Session 27c (2026-07-30) — the diagnosis, kept for the exclusions
 
 **Read this before touching SideStore, iloader, or the pairing file. Roughly three
 hours went into it and the outcome is a precise diagnosis with no fix.**
