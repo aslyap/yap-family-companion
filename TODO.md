@@ -1,5 +1,133 @@
 # yap-family-companion — Session Handoff
 
+## Session 27c (2026-07-30) — SideStore refresh is BROKEN, cause isolated not fixed
+
+**Read this before touching SideStore, iloader, or the pairing file. Roughly three
+hours went into it and the outcome is a precise diagnosis with no fix.**
+
+### The failure, exactly
+
+SideStore's `Refresh All Apps` fails with *"Failed to refresh 2 apps. SideStore
+could not determine this device's UDID. Please replace your pairing using
+iloader."* on the **spare** iPhone (device name "Kathryn", iOS **26.5.2** build
+**23F84**, UDID `00008101-00046C423041401E`).
+
+⚠️ **The message names the pairing file and the pairing file is NOT the problem.**
+That is the second time this message has lied — session 25's cause was the VPN.
+
+### 🔑 The decisive instrument nobody knew existed: SideStore's own logs
+
+**SideStore writes a console log per launch, on the device, and it can be pulled
+over USB.** This is the only instrument in the whole setup that told the truth.
+
+```powershell
+# list them
+$c = "`nls Documents/ConsoleLogs`nexit`n"
+$c | & python -m pymobiledevice3 apps afc com.SideStore.SideStore.DGTDMWTY29
+# pull one
+& python -m pymobiledevice3 apps pull com.SideStore.SideStore.DGTDMWTY29 `
+    "/Documents/ConsoleLogs/<name>.log" "<local path>"
+```
+
+⚠️ Piping stdin to that AFC shell adds a **BOM** to the first command — start the
+string with a newline or the first command fails as `'\ufeffl'`.
+
+**A matched pair of logs was captured — same device, same build, one working and
+one failing.** This is evidence no upstream issue thread has.
+
+| | 29 July 00:51 (worked, gave 7 days) | 30 July 08:50 (fails) |
+|---|---|---|
+| `[iface] en0` | ip=**192.168.10.122** | ip=**192.168.0.113** |
+| `[iface] utun4` | ip=10.7.0.0 peer: **nil** | ip=10.7.0.0 peer: **nil** |
+| override peer | **NOT reachable at 192.168.1.50** | **NOT reachable at 192.168.1.50** |
+| `device endpoint` | **cleared -> nil** | **cleared -> nil** |
+| `Getting UDID for first device` | → `UDID: 00008101-…` ✅ | → `ERROR: Failed to get UDID` ❌ |
+
+**Everything minimuxer logs is IDENTICAL in both runs.** The failure is one call,
+and the difference is invisible from outside. Note also that the working run was on
+a *different subnet*, which is why the network is exonerated.
+
+### ⚠️ Two theories formed from that log and both were WRONG — don't re-run them
+
+1. **"The override peer `192.168.1.50` is unreachable, that's the bug."** No — it
+   is equally unreachable in the run that **succeeded**. `overrideEffective:
+   false` in both.
+2. **"The network changed, that's the bug."** No — the working run was on
+   `192.168.10.122`, a different subnet from the failing one.
+
+Both were called out loud before checking the working log. **Read the known-good
+log before theorising about the failing one.**
+
+### Ruled out with evidence — do not re-test any of these
+
+| ruled out | evidence |
+|---|---|
+| **iOS update** | 26.5.2 (23F84) **released 2026-06-29**, a month before. Nothing updated overnight. |
+| **`lockdownd` wedged** | pymobiledevice3 10.2.3 over USB reads device info, pairs, and reads/writes app containers cleanly. |
+| **Wireless lockdown off** | Was genuinely missing; set via `pymobiledevice3 lockdown wifi-connections --state on`, now reads `{"EnableWifiConnections": true}`. `Test-NetConnection <phone> -Port 62078` → **True**. Did not fix it. |
+| **The pairing file** | Pulled SideStore's own file; structurally complete (EscrowBag, UDID, RemotePairing triple). Built a merged file with the **live** HostID (old `31266624-3445721725783980` → live `31268786503418099139313832`); SideStore onboards cleanly on it. **Merged and restored-original fail identically.** |
+| **MAC privacy** | Device `WiFiAddress fc:66:cf:25:8c:fd` matches `WiFiMACAddress` in the pairing file exactly. |
+| **Network / subnet** | Phone and PC on the same /24, ping both ways, port 62078 open. And the working run was on a different subnet. |
+| **Developer Mode** | ON. Cycled off/on. ⚠️ **SideStore requires it — do not leave it off.** |
+| **Local Network permission** | ON for SideStore. |
+| **LocalDevVPN signature expiry** | Only **two** dev-signed apps exist: `com.SideStore.SideStore.DGTDMWTY29` and `com.yapfamily.companion.DGTDMWTY29`. LocalDevVPN is **not** sideloaded, so no deadlock. |
+| **iloader being out of date** | Upgraded **2.2.6 → 2.2.10** (released 2026-07-29). `Failed to enable wifi debugging: MissingValue` **unchanged**. |
+| **LocalDevVPN logs** | v1.1.5, `connecting → connected`, status transitions only. No data-plane logging, no errors, no port. |
+| **lockdownd contention** | Retried with USB unplugged and iloader closed. Same. |
+| **Reboot-then-refresh-immediately** | The most-reported upstream mitigation. Tried clean. Same. |
+
+Also tried and failed: 4 reboots, VPN off/on repeatedly, SideStore **Reset Pairing
+File** then re-place, force-quit and relaunch, opening LocalDevVPN first so its
+extension is definitely alive.
+
+### What it actually is
+
+An **upstream SideStore bug** on iOS 26.4.x/26.5.x. SideStore **0.6.3** (stable).
+Upstream issues: `SideStore/SideStore` **#1305, #1262, #1336, #1322, #1197, #1112**;
+reported log is `Couldn't fetch first device (timed out)` → `Failed to get UDID`.
+Re-placing the pairing via iloader is **documented as ineffective**, which is
+exactly what we found the hard way. No confirmed fix. LiveContainer is reported to
+bypass **sign-in only** and cannot be driven by a Shortcuts automation, so it does
+not restore unattended refresh.
+
+`iloader`'s `MissingValue` is a **separate** upstream bug (`nab138/iloader` #340,
+#75, #260, #427, #463 — open, no fix). ⚠️ It is **not iloader-specific**:
+pymobiledevice3 returns "No such value" for the same key, so the value genuinely
+did not exist device-side. Creating it did not help iloader.
+
+### ⚠️ What this means for Kath, and it is not good
+
+- **The spare's apps are still signed** — refreshed 2026-07-29, so ~6 days left
+  from then. **Call testing is NOT blocked.**
+- **Sunday 2 August is at risk.** Kath's phone needs a from-scratch setup (see
+  session 27b) and the refresh path is broken upstream. Unattended 7-day refresh
+  for someone overseas with no PC **cannot currently be delivered.**
+- The user has ruled the **$99 Apple Developer account out** for now. Do not
+  re-argue it unasked; it was raised and answered on 2026-07-30.
+
+### Small robustness items found along the way — worth doing regardless
+
+1. **LocalDevVPN → `Auto Connect on Launch` is OFF.** Turn it on.
+2. **`Connect On Demand` does not bring the tunnel up after a reboot** — observed
+   twice. The nightly automation must connect it explicitly.
+3. **The nightly Shortcuts automation has no `Wait`** between "Connect to
+   LocalDevVPN" and "Refresh All Apps". Add ~5s. Not the cause of this failure
+   (SideStore's own button fails while unlocked and attended), but correct.
+4. ⚠️ **No SideStore log exists for 00:00 on 2026-07-30** — the newest before
+   07:42 is `console-20260729_191638_544.log`. So the midnight automation may not
+   have fired at all that night, which is a **separate** question from this bug.
+
+### Tooling now on the upstairs PC
+
+- **pymobiledevice3 10.2.3** (was 9.27.0). This is the tool that works when
+  iloader does not: `usbmux list`, `lockdown info`, `lockdown save-pair-record`,
+  `lockdown wifi-connections`, `apps list/query/pull/push/afc`.
+- **iloader 2.2.10** at `C:\Program Files\iloader\iloader.exe`.
+- Pairing files, both logs and the merge script are in the session scratchpad;
+  **copy them somewhere permanent if they are still wanted.**
+
+---
+
 ## Session 27b — CONTINUE ON THE BEELINK (start here)
 
 Session 27 ran from the work PC over remote desktop and stopped because every
