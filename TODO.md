@@ -120,6 +120,90 @@ next session cannot see any of it.**
 
 ---
 
+## Session 27e outcomes (2026-07-30, on the Beelink)
+
+Ran on the **Beelink kiosk** (fullscreen, no browser chrome — confirmed) calling
+the **spare** iPhone (build `b=a1fe32b`, `me=kath`). Kiosk console confirmed
+bundle **`index-C_CyEBwL.js`**, matching the expected deployed build. Repos
+matched TODO exactly on arrival — no drift this session (companion `fc37b19`,
+kiosk `ddc2703`).
+
+⚠️ **Kiosk call ids truncate on the phone strip.** The kiosk's full call id
+`family-hub-kath-<13-digit-ms-timestamp>` appears on the phone strip with the
+leading `178` dropped — e.g. kiosk `…1785414811859` = phone strip
+`5414811859`. Useful for matching evidence across the two sides in future
+sessions.
+
+### Test 1 (duplicate notification) — ✅ PASS
+
+Call → answer on spare → hang up from kiosk red button → lock spare
+immediately → call again, untouched. **Only the Bark critical alert fired; no
+extra quiet "Yap Family is calling" banner.** Confirmed ~20:32 SGT. First
+attempt was invalid (phone was touched/accepted before the photo was taken);
+the passing run was the retry with the phone genuinely untouched.
+
+### Test 2 (`61a9b4a` first iOS run) — confirmed, nothing odd
+
+Reached via tapping the Bark alert (call id `…5414811859`): the incoming-call
+screen renders **live Decline/Accept buttons**, not a spinner. Nothing odd
+noted about the buttons themselves. Not accepted during the observed run, so
+post-accept behavior on iOS specifically remains unobserved.
+
+### Test 3 (iOS missed call replaces alert in place) — ✅ PASS, with a caveat
+
+Verified in two device states (locked, and unlocked-with-app-not-open): kiosk
+call → let ring untouched → end from kiosk red button → phone shows **"Missed
+call"**, not a duplicate. Kiosk-side log for the matching call confirms the
+mechanism precisely:
+
+```
+[call] << event: call.session_ended
+[call] rang out unanswered — sending missed-call note
+[ring] stop (cancelled): 200
+[bark] push accepted: {"code":200,"message":"success",...}
+```
+(call `family-hub-kath-…4979676`)
+
+⚠️ **New finding, not root-caused:** in both states, **Bark's ring/sound kept
+playing for ~15s after the kiosk ended the call**, even though the
+notification content had already updated to "Missed call". Most likely a
+critical-alert sound-duration behavior on iOS (the sound, once triggered,
+plays to a fixed length independent of the notification being superseded
+underneath it) rather than a second duplicate-notification bug — but this is
+a guess, not verified against source or Apple docs. Worth a real look before
+Sunday if it would be confusing or alarming for Kath overseas.
+
+A third, unplanned state was also observed: **app foregrounded** → no Bark at
+all, the app's own full-screen "Yap Family calling" UI is used directly;
+ending from the kiosk clears it immediately with no missed-call message.
+Expected — foreground calls don't route through Bark — not a bug.
+
+### Evidence-gap note
+
+Several more test/exploratory calls (kiosk-visible as `#3`–`#8` on the phone
+strip, ids `…694077` through `…415000096`) were placed during this session
+that weren't individually narrated back turn-by-turn. The kiosk console dump
+obtained late in the session covers them at the `[call]`/`[bark]`/`[ring]`
+level, but they weren't individually matched to phone-side photos per the
+"one artifact from each side" rule. Not believed to change any conclusion
+above, but flagged rather than silently assumed clean.
+
+### Not run this session
+
+- **Test 4 (SideStore day count on the spare)** — deferred to tomorrow
+  morning per the user's request; not yet checked.
+- Session ended for **quiet hours (21:00 SGT)**; no further calls placed
+  after ~20:45.
+
+### Reminder for tomorrow morning
+
+Check SideStore's day count on the **spare**. **7 = the midnight automation
+fired locked and unattended on the new RPPairing file** (from the SOLVED fix
+below); **6 = it didn't.** This is what gates whether Sunday's setup on
+Kath's phone can be trusted unattended.
+
+---
+
 ## ✅ SOLVED (2026-07-30): stale RPPairing keys. The tool is `idevice_pair`.
 
 **SideStore refresh works again — both apps went 6 → 7 days, sign-in restored.**
