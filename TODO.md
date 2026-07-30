@@ -117,6 +117,66 @@ did not exist device-side. Creating it did not help iloader.
    07:42 is `console-20260729_191638_544.log`. So the midnight automation may not
    have fired at all that night, which is a **separate** question from this bug.
 
+### 🔑 THE TOOL WE WERE MISSING: `idevice_pair` (NOT iloader)
+
+**iloader is the LEGACY pairing path and is why nothing worked.** On iOS 17.4+ Apple
+replaced the `com.apple.mobile.wireless_lockdown` mechanism with
+`remotepairingd` / CoreDevice. iloader still drives the old one, which is what
+`Failed to enable wifi debugging: MissingValue` actually means — obsolete, not
+broken, and no version will fix it (2.2.6 and 2.2.10 both fail identically).
+
+**`jkcoxson/idevice_pair` is the current tool.** It generates **RPPairing** files via
+`CoreDeviceProxy` + `RemotePairingClient`, and installs them straight into the
+Documents folder of SideStore / LiveContainer / StikDebug via HouseArrest+AFC — the
+same mechanism we were driving by hand with `pymobiledevice3 apps push`.
+
+- Windows build **v0.1.14 (2026-06-17)**, downloaded to
+  `C:\Users\user\Downloads\idevice_pair-windows-x86_64.exe`
+- Releases: `https://github.com/jkcoxson/idevice_pair/releases`
+- RPPairing support landed in `v0.1.9-rppairing`
+
+⚠️ **Our pairing file has always carried the SAME RemotePairing triple.** The log
+prints `[minimuxer] INFO: RPPairing file detected`. When the merged file was built,
+`identifier` / `private_key` / `public_key` were **deliberately carried over** from
+the old file, then the original was restored — so the RemotePairing identity was
+never once varied, while "the pairing file is exonerated" was being asserted. That
+conclusion only ever covered the **classic** record.
+
+⚠️ **Two mid-session conclusions that were WRONG and are retracted here:**
+"no Windows tool can produce a SideStore pairing file with RemotePairing keys", and
+"therefore Clear Trusted Computers would be unrecoverable". With `idevice_pair` the
+file can be regenerated, so clearing trust is recoverable — **but generate and
+verify a working file FIRST, and only clear trust if it is actually needed.**
+
+⚠️ Also wrong, and checked in the UI rather than guessed: **Sideloadly has NO
+"Export pairing file" feature** (v0.60 — Advanced Options is app-signing only;
+Settings has only Anisette Local/Remote, Signing Mode, Uploading). And
+**`pymobiledevice3 developer core-device pair` DOES NOT EXIST** — `core-device` has
+15 subcommands and none of them is `pair`. Both were asserted by a second opinion
+and both are fabrications; verify tool capabilities before acting on them.
+
+**Correct syslog syntax**, for the capture that still needs doing:
+`pymobiledevice3 syslog live -o <file>` (there is no `--process`; the filters are
+`--process-name`/`-pn` and `-m`).
+
+### NEXT SESSION, IN ORDER — needs the phone on USB at the upstairs PC
+
+1. Run `idevice_pair-windows-x86_64.exe`, generate a **fresh RPPairing file**, and
+   let it install into SideStore.
+2. VPN on → **Refresh All Apps**. This is the first test that varies the
+   RemotePairing identity.
+3. If it still fails: `pymobiledevice3 syslog live -o <file>` during a refresh, then
+   search for `remotepairingd`, `lockdownd`, `minimuxer`, `refused`.
+4. Untried permutation: push the **classic-only** file from
+   `pymobiledevice3 lockdown save-pair-record` with **no** RemotePairing block, to
+   see whether minimuxer takes a different path when `RPPairing file detected` is
+   absent.
+5. Sort out the HostID mismatch we created: pymobiledevice3 paired a **new** HostID
+   (`31266624-3445721725783980` → `31268786503418099139313832`) and the restored
+   original file carries the **old** one.
+6. Pull and search the JetsamEvent logs (`JetsamEvent-2026-07-29-230654.ips`).
+7. Check the app's entitlements / app-group suffix after the 29 July re-sign.
+
 ### ⚠️ STATE OF THE SPARE AT END OF SESSION — read before touching it
 
 - **SideStore is SIGNED OUT of the Apple ID**, and cannot sign back in: sign-in is
