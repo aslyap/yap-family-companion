@@ -119,11 +119,29 @@ did not exist device-side. Creating it did not help iloader.
 
 ### 🔑 THE TOOL WE WERE MISSING: `idevice_pair` (NOT iloader)
 
-**iloader is the LEGACY pairing path and is why nothing worked.** On iOS 17.4+ Apple
-replaced the `com.apple.mobile.wireless_lockdown` mechanism with
-`remotepairingd` / CoreDevice. iloader still drives the old one, which is what
-`Failed to enable wifi debugging: MissingValue` actually means — obsolete, not
-broken, and no version will fix it (2.2.6 and 2.2.10 both fail identically).
+⚠️⚠️ **RETRACTED — "iloader is architecturally obsolete on iOS 17.4+" is FALSE.**
+It was asserted here and it does not survive the session-25 record: on **27 July,
+on this phone, on this same iOS 26.5.2 build**, iloader successfully did
+`Delete Stored Pairing` + regenerate + place, **three times**. iOS 17.4 shipped in
+2024, so an architectural incapability would have failed then too. iloader did not
+become obsolete — **it stopped working between 27 and 30 July.** The claim came from
+a second opinion that explicitly could not cite a maintainer statement, and it was
+passed on with more confidence than it was given.
+
+⚠️ **So the shared-cause reading is back, and stronger.** Two tools that both
+worked on 27–29 July both broke by the 30th, on an OS that hasn't changed in a
+month. Something on the DEVICE changed. The fingerprint is
+`EnableWifiConnections` being **absent** when it had demonstrably worked days
+earlier — that is the central question now, not a footnote.
+
+⚠️ **New hypothesis worth testing, and it points at us:** the 27 July session
+thrashed iloader's pairing — three regenerations including a full delete. That may
+have left duplicate or stale **RemotePairing peers** on the device, working until
+something forced re-validation. If so the fix is to clear the peer list and mint
+one clean identity, which is precisely what `idevice_pair` is for.
+
+**`idevice_pair` is still the right next action** — but because it is the only tool
+that will **vary the RemotePairing identity**, not because iloader is obsolete.
 
 **`jkcoxson/idevice_pair` is the current tool.** It generates **RPPairing** files via
 `CoreDeviceProxy` + `RemotePairingClient`, and installs them straight into the
