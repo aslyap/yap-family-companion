@@ -354,7 +354,15 @@ codes**, NOT for refresh or UDID failures. Wi-Fi Assist remains speculative.
 - **pymobiledevice3 10.2.3** (was 9.27.0). This is the tool that works when
   iloader does not: `usbmux list`, `lockdown info`, `lockdown save-pair-record`,
   `lockdown wifi-connections`, `apps list/query/pull/push/afc`.
-- **iloader 2.2.10** at `C:\Program Files\iloader\iloader.exe`.
+- ⚠️ **iloader is UNINSTALLED (2026-07-30)** — executable, folder, registry entry,
+  the MSI in Downloads and `AppData\Local\me.nabdev.iloader` all removed. It
+  produced the defective pairing file and could not select the device on this iOS.
+  **Do not reinstall it, whatever SideStore's error message says.** Pairing is
+  `idevice_pair`; installing SideStore itself is Sideloadly.
+- **Sideloadly v0.60** at `C:\Users\user\AppData\Local\Sideloadly\sideloadly.exe` —
+  signs and installs over USB with the free Apple ID (7 App IDs remaining). It reads
+  the UDID over USB and does anisette locally, so it never touches the loopback path
+  that failed. ⚠️ It has **no** pairing-file export.
 - Pairing files, both logs and the merge script are in the session scratchpad;
   **copy them somewhere permanent if they are still wanted.**
 
