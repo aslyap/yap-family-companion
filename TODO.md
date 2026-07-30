@@ -117,6 +117,69 @@ did not exist device-side. Creating it did not help iloader.
    07:42 is `console-20260729_191638_544.log`. So the midnight automation may not
    have fired at all that night, which is a **separate** question from this bug.
 
+### ⚠️ STATE OF THE SPARE AT END OF SESSION — read before touching it
+
+- **SideStore is SIGNED OUT of the Apple ID**, and cannot sign back in: sign-in is
+  gated behind the same UDID call that refresh fails on (upstream issue **#1305**
+  is exactly this). Caused by following SideStore's own documented step 8 for error
+  1006 — *"switch anisette to Macley"* + **Reset adi.pb**. ⚠️ **My instruction, and
+  it cost the session's Apple ID session.** It did NOT cost a working capability:
+  refresh had already failed identically at 08:50 with the session intact.
+- **Anisette is back to the default** `https://ani.sidestore.io`.
+- **The original pairing file is restored byte-identical** (9803 bytes).
+- **Developer Mode is back ON** (it was cycled off during diagnosis; SideStore
+  requires it).
+- `EnableWifiConnections` was **absent** and is now `true` — left that way
+  deliberately; it is correct and was one of the few genuinely wrong things found.
+- **The companion app is still signed until ~5 August**, so **call testing is not
+  blocked**. Sign-in only has to succeed once the upstream bug is worked around.
+
+### The official 10-step remediation for error 1006 — audited against what we did
+
+From `docs.sidestore.io/docs/troubleshooting/error-codes`:
+
+| # | Official step | Us |
+|---|---|---|
+| 1 | Reset the pairing file in SideStore settings | ✅ |
+| 2 | Delete stored pairing in iloader | ❌ **blocked** — iloader dies at device-select |
+| 3 | Refresh iloader | ❌ blocked |
+| 4 | Pair the device with iloader | ❌ blocked (substituted pymobiledevice3) |
+| 5 | Place the pairing file in all apps / next to SideStore | ✅ via pymobiledevice3 |
+| 6 | Open SideStore and refresh | ✅ fails |
+| 7 | Set **Device IP to `10.7.0.1`** (or the custom LocalDevVPN setting) | ⬜ **NEVER TRIED** |
+| 8 | Switch anisette to Macley | ⚠️ tried — **this is what signed us out** |
+| 9 | Reboot the device | ✅ ×4 |
+
+⚠️ **Step 7 is the last untried documented action.** SideStore's stored override is
+`192.168.1.50` — a stale address on a subnet that does not exist here — while
+LocalDevVPN's actual Device IP is `10.7.0.1`. It is **not causal** (the same stale
+value is in the log of the run that SUCCEEDED, with `overrideEffective: false`), but
+it is the documented fix and it would give minimuxer the `peer` it keeps logging as
+`nil`. Not attempted because the user stopped, correctly, after the adi.pb damage.
+
+⚠️ **LiveContainer's workaround requires the Nightly channel**, so it is not
+available on this 0.6.3 stable install.
+
+### Auto-update audit — "we changed nothing" is not quite true, but it wasn't this
+
+Three components update themselves without the user acting. Checked:
+
+- **SideStore 0.6.3 was released 2026-05-05**, so it did **not** self-update on the
+  29th. Dead.
+- **iloader** ships a Tauri updater; 2.2.6 → 2.2.10 made no difference to
+  `MissingValue`, so this explains onset at most, not the bug.
+- **LocalDevVPN is App Store / Apple-signed, so it auto-updates.** Currently 1.1.5.
+  **Still unchecked** — App Store → LocalDevVPN → update history. Best remaining
+  candidate for "nothing changed".
+
+⚠️ **The 29 July log proves that run genuinely worked** — `Successfully resigned
+app`, `Sideloaded app … with result: success()`. So the theory that it only
+*appeared* to work off a cached UDID is dead.
+
+⚠️ **Not doc-backed, contrary to what I said mid-session:** the "disable Wi-Fi and
+Cellular Data" advice in SideStore's docs is for **obtaining 2FA verification
+codes**, NOT for refresh or UDID failures. Wi-Fi Assist remains speculative.
+
 ### Tooling now on the upstairs PC
 
 - **pymobiledevice3 10.2.3** (was 9.27.0). This is the tool that works when
