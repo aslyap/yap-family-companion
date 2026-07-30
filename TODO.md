@@ -149,12 +149,17 @@ screen renders **live Decline/Accept buttons**, not a spinner. Nothing odd
 noted about the buttons themselves. Not accepted during the observed run, so
 post-accept behavior on iOS specifically remains unobserved.
 
-### Test 3 (iOS missed call replaces alert in place) — ✅ PASS, with a caveat
+### Test 3 (iOS missed call replaces alert in place) — ⚠️ PARTIAL, two open issues
 
-Verified in two device states (locked, and unlocked-with-app-not-open): kiosk
-call → let ring untouched → end from kiosk red button → phone shows **"Missed
-call"**, not a duplicate. Kiosk-side log for the matching call confirms the
-mechanism precisely:
+Tested across three device states, phone untouched during each ring:
+
+| state | on end from kiosk | notification result |
+|---|---|---|
+| locked | ring → kiosk hangup | "Missed call" replaces the alert **in place** ✅ |
+| unlocked, app not open | Bark "call coming through" → kiosk hangup | "Missed call" replaces the alert **in place** ✅ |
+| unlocked, **app open** | in-app full-screen "Yap Family calling" (no Bark) → kiosk hangup | call screen clears immediately, **no missed-call notification at all** ❌ |
+
+Kiosk-side log for one of the passing calls confirms the intended mechanism:
 
 ```
 [call] << event: call.session_ended
@@ -164,19 +169,20 @@ mechanism precisely:
 ```
 (call `family-hub-kath-…4979676`)
 
-⚠️ **New finding, not root-caused:** in both states, **Bark's ring/sound kept
-playing for ~15s after the kiosk ended the call**, even though the
-notification content had already updated to "Missed call". Most likely a
-critical-alert sound-duration behavior on iOS (the sound, once triggered,
-plays to a fixed length independent of the notification being superseded
-underneath it) rather than a second duplicate-notification bug — but this is
-a guess, not verified against source or Apple docs. Worth a real look before
-Sunday if it would be confusing or alarming for Kath overseas.
+**Two open issues, neither root-caused:**
 
-A third, unplanned state was also observed: **app foregrounded** → no Bark at
-all, the app's own full-screen "Yap Family calling" UI is used directly;
-ending from the kiosk clears it immediately with no missed-call message.
-Expected — foreground calls don't route through Bark — not a bug.
+1. **No missed-call record when the app was foregrounded.** The "sending
+   missed-call note" path above appears to be wired through Bark specifically;
+   the foreground in-app ring path doesn't call it, so ending an unanswered
+   foreground call leaves no trace anywhere that a call happened. Worth
+   deciding whether this matters before Sunday — Kath could plausibly have the
+   app open and still miss/ignore a ring.
+2. **Bark's ring/sound kept playing for ~15s after the kiosk ended the call**,
+   in both of the passing states, even though the notification content had
+   already updated to "Missed call". Not just a footnote — a call that's
+   already over still audibly rings for 15s could read as broken or alarming,
+   especially for Kath overseas with no context on what's happening kiosk-side.
+   Not investigated against source or Apple docs this session.
 
 ### Evidence-gap note
 
@@ -197,10 +203,22 @@ above, but flagged rather than silently assumed clean.
 
 ### Reminder for tomorrow morning
 
-Check SideStore's day count on the **spare**. **7 = the midnight automation
-fired locked and unattended on the new RPPairing file** (from the SOLVED fix
-below); **6 = it didn't.** This is what gates whether Sunday's setup on
-Kath's phone can be trusted unattended.
+⚠️ **The naive "check the day count" plan is broken — don't just read the
+number.** The user manually ran "Refresh All Apps" again tonight at ~20:5x
+SGT, on top of the earlier manual refresh this session, resetting the counter
+to a fresh 7. Tomorrow morning is only ~10-12 hours later, so **the counter
+will almost certainly still read 7 even if the midnight automation fails
+silently** — there hasn't been enough elapsed time for it to tick down
+regardless. A **7 reading proves nothing** this time. A **6 reading would
+still be meaningful** (proves the automation did not run).
+
+**Do this instead:** pull SideStore's on-device console log (same technique
+as the SOLVED fix below — `pymobiledevice3 apps pull
+com.SideStore.SideStore.DGTDMWTY29 …`) and look for a refresh entry
+timestamped **~00:00 on 2026-07-31**, or check whether the Shortcuts
+automation's "Notify When Run" notification actually fired overnight. Either
+one directly proves the automation ran, instead of inferring it from a
+counter that tonight's manual refresh has made uninformative.
 
 ---
 
