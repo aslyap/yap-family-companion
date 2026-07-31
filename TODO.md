@@ -1,5 +1,68 @@
 # yap-family-companion — Session Handoff
 
+## Session 28 kickoff — fix the Bark ring overrun PROPERLY (Fly backend work)
+
+Session 27e (2026-07-30/31, on the Beelink) closed out the iPhone call tests
+and fixed three kiosk display/startup bugs (see "Session 27e outcomes" below
+and `yap-family-home`'s own TODO.md). **One thing remains, decided but not
+built: the Bark ring overrun fix, chosen deliberately over two lighter
+options — read "Test 3" below in full before starting, don't re-derive it.**
+
+### The state you're picking up
+
+- Companion `main` = `9969fe2`. Kiosk (`yap-family-home`) `main` = `8e83d8a`.
+  Kiosk `yap-kiosk-setup` (Beelink OS scripts, separate repo) `main` =
+  `f76011f`. `git pull` all three before doing anything — this project's repos
+  drift between sessions.
+- **A custom Bark sound already exists and is already uploaded** to the spare
+  iPhone: `iphone_x_ring_cycle.caf` (5.0s, one ring+pause cycle, in
+  `yap-family-companion/assets/`), shows in Bark as `iphone_x_ring_cycle`.
+  Don't remake it.
+- **Windows Smart App Control was permanently disabled on the Beelink**
+  tonight (user's informed decision, one-way without a Windows reinstall) —
+  this is why `ffmpeg`/`choco` now work there where they didn't before. Not
+  relevant to this backend work, but don't be surprised by it.
+
+### The actual task
+
+The kiosk's `streamVideo.js` sends the initial Bark ring via
+`POST ${BACKEND}/api/ring/start`, and the **Fly backend**
+(`calendar_backend.py` — not in this repo, not checked out anywhere on the
+Beelink, you'll need to find/clone it) holds that push for ~1200ms and
+decides — based on the phone's own heartbeats — whether to actually fire it
+or suppress it (when the callee's app is already foregrounded and showing its
+own ring screen). That decision happens **asynchronously, after** the HTTP
+response already returned to the kiosk. The kiosk currently has no way to
+know the outcome.
+
+**Why that matters here:** the overrun fix requires replacing Bark's
+`call: '1'` (fixed 30s loop, no remote-stop — confirmed via Bark's own docs
+and cross-checked with Gemini, see Test 3 below) with a *repeated short push*
+every ~5s using `iphone_x_ring_cycle`, for as long as the call is genuinely
+still ringing. But only the backend knows whether it's genuinely still
+ringing (vs. suppressed). A kiosk-only repeat loop would ring even when the
+backend correctly suppressed the original push — a version of the exact
+duplicate-ring bug Test 1 exists to catch.
+
+**Do this properly (Option 2, chosen over a kiosk-only compromise or leaving
+it alone):** extend the Fly backend so the repeat logic lives where the
+suppression decision already lives, or so it reports the outcome back to the
+kiosk in a way the kiosk can act on (a poll endpoint, a webhook, whatever fits
+the existing `/api/ring/start` + `/api/ring/stop` design). Read
+`calendar_backend.py`'s existing hold/suppress logic first — don't guess at
+its shape.
+
+### Standing rules — read before touching anything, cost sessions 20-27
+
+1. **QUIET HOURS 21:00–07:00 SGT block every outgoing call test. No override.**
+2. **ASK WHICH MACHINE A CONSOLE IS ON** before trusting it as kiosk evidence.
+3. **One artifact from each side of the SAME call, or it isn't evidence.**
+4. **Read the SDK/backend source before theorising.**
+5. **One instruction at a time** when a step needs the physical phone/kiosk.
+6. **Do NOT strip the debug code. Do NOT dispatch an Android build.**
+
+---
+
 ## Session 27d — MOVE TO THE BEELINK, iPhone call tests (start here)
 
 **Nothing about SideStore is outstanding. It is fixed — see the SOLVED section
@@ -183,22 +246,54 @@ Kiosk-side log for one of the passing calls confirms the intended mechanism:
    phone test to confirm** — not done this session, no one available to check
    the phone.
 2. **Bark's ring/sound overrunning ~15s after kiosk hangup — root-caused,
-   NOT fixable without a UX tradeoff decision.** The ring push uses Bark's
-   `call: '1'` extension (continuous loop until the user taps it) rather than
-   a plain sound. Checked Bark's own tutorial docs: **there is no documented
-   remote-stop for an in-progress `call` loop** — replacing the notification
-   content via the same `id` updates the visible banner but does not appear to
-   interrupt the audio loop already running on the phone, and Apple's own
-   critical-alert sounds are capped at 30s with no confirmed early-cancel
-   mechanism either (checked the Apple Developer Forums — not documented).
-   The only real fix would be giving up `call: '1'`'s continuous single-
-   notification ring in favor of the discrete-burst pattern already used for
-   the ntfy fallback (a few spaced pushes instead of one loop) — trivially
-   stoppable (just don't send more), but a deliberate UX downgrade from what
-   was chosen on purpose (`streamVideo.js:84`: *"much closer to a real
-   incoming call... and no pile-up of banners"*). **Left alone pending your
-   call on that tradeoff** — didn't want to unilaterally change established,
-   deliberate UX while you were away.
+   fix DECIDED but NOT YET BUILT (needs a new session — see kickoff prompt at
+   the top of this file).**
+
+   Confirmed via Bark's own docs (README.md, bark-server API_V2.md): `call: '1'`
+   plays the ringtone **on a fixed 30-second timer**, and there is no
+   documented remote-stop for an in-progress `call` loop — a same-`id` push
+   rewrites the visible banner but does not interrupt audio already playing.
+   Also checked with Gemini as a second opinion; it agreed and added that a
+   `UNNotificationServiceExtension` (which is how Bark processes pushes) only
+   runs *before* a notification is presented, so it has no way to reach back
+   into an already-playing sound either. No exploitable gap found anywhere in
+   this — it is a real platform limitation, not a bug in our code.
+
+   **The fix**: stop using `call: '1'`'s forced 30s loop; instead repeat a
+   *short* sound every few seconds for as long as the call is actually
+   ringing, so worst-case overrun shrinks to that short clip's length instead
+   of up to 30s. A custom sound was made for this: `iphone_x.mp3` (the
+   companion app's own former in-app ringtone, muted in `39a6db8` once Bark
+   took over iOS ringing) turns out to be exactly 6 loops of one natural
+   ~5-second "ring (3.6s) + pause (1.4s)" cycle back-to-back — confirmed via
+   `ffmpeg`'s `silencedetect` filter, silence boundaries almost exactly every
+   5.01s. Trimmed to one clean cycle and converted:
+   `assets/iphone_x_ring_cycle.caf` (5.0s, mono 44.1kHz PCM) — **already
+   uploaded into Bark on the spare** (Service → Alert Sound → Custom Sounds →
+   `iphone_x_ring_cycle`, confirmed showing "5 second(s)" in the app).
+
+   **⚠️ Why this isn't built yet — a real architectural gap, not just
+   remaining effort.** The backend (Fly, `calendar_backend.py` — not checked
+   out in either of these two repos, not touched this session) holds the
+   first ring push for ~1200ms and decides — based on the phone's heartbeats,
+   invisibly to the kiosk — whether to actually fire it or suppress it
+   entirely (when the callee's app is already foregrounded showing its own
+   ring screen). That decision is made asynchronously, **after** the
+   `/api/ring/start` HTTP response has already returned to the kiosk
+   (confirmed via this file's own history, line ~1720: the Fly log reads
+   `holding push for 1200ms` → `suppressed, phone is ringing on screen`,
+   i.e. the outcome is logged well after the request/response cycle). So the
+   kiosk cannot currently know whether it should keep sending repeat pushes
+   or not — repeating unconditionally from the kiosk alone would ring even in
+   the suppressed case, reintroducing a version of the duplicate-ring bug
+   Test 1 exists to catch.
+
+   **Decision (2026-07-31, with user): Option 2 — fix it properly.** Extend
+   the Fly backend so it tells the kiosk (or handles the repeat loop itself)
+   whether the ring is actually live, rather than building a kiosk-only
+   workaround with a known correctness gap. This needs its own look at
+   `calendar_backend.py`, which is not part of this repo — **start a new
+   session for this, see the kickoff prompt at the top of this file.**
 
 ### Evidence-gap note
 
