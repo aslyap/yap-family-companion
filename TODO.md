@@ -1,6 +1,151 @@
 # yap-family-companion — Session Handoff
 
-## Session 28 kickoff — fix the Bark ring overrun PROPERLY (Fly backend work)
+## Session 29 kickoff — iOS retest + Android Telecom investigation
+
+Session 28 (2026-07-31, on the Beelink) ran long and covered a lot of ground.
+**Read this whole section before touching anything — it corrects claims made
+earlier in session 28's own log below, so don't trust "fixed" language further
+down without reading this first.**
+
+### Honesty check on "fixed" claims below
+
+Session 28's own write-up (further down this file) calls several things
+"fixed" based on live evidence gathered mid-session. Two of those hold up:
+the original Bark ring-overrun bug (call kept ringing 15-20s after kiosk
+hangup) and the Android placeholder-TTL stuck-screen bug both have direct,
+repeated on-device confirmation via the debug strip and are reasonably
+trustworthy. **Everything else should be treated as "built and deployed,
+NOT independently confirmed working" until re-tested — in particular the
+iOS timing/heartbeat fixes, which the user installed and reports are
+STILL NOT FIXED, with no specifics gathered yet on what's still wrong.**
+Don't assume "I pushed a fix for X" means X is actually fixed. Test it.
+
+### iOS — reported still broken after the session 28 build, needs re-diagnosis
+
+The session 28 iOS build (heartbeat-from-placeholder fix, REPEAT_MS timing
+tuning) was built, installed on the spare iPhone, and the user reports it is
+**not fixed** — no specifics on what's still wrong were captured before the
+session ended. **First step: ask what specifically is still broken** (ring
+gap still too long? still ringing after hangup? something new?) rather than
+assuming it's the same symptom as before. Don't re-explain the backend
+mechanism from scratch — it's documented in detail in session 28's log below
+and in `calendar_backend.py`'s own comments — but don't assume it's working
+either.
+
+### Android — Telecom investigation, not more settings-hunting
+
+Two Android issues are still open, both native-level and NOT fixable by
+guessing through phone settings menus — two blind attempts at that in
+session 28 wasted real time and frustrated the user badly. Read the standing
+rule below before suggesting any settings screen.
+
+1. **Full-screen call UI works when phone is locked, but only a banner shows
+   when unlocked + app backgrounded.** Confirmed NOT a missing permission
+   (all relevant ones — `MANAGE_OWN_CALLS`, `FOREGROUND_SERVICE_PHONE_CALL`,
+   `USE_FULL_SCREEN_INTENT` — are present and, where checkable, enabled).
+   The app already uses Android's real Telecom/`ConnectionService`
+   registration (`TelecomCallRepository`, confirmed from
+   `@stream-io/video-react-native-sdk` source), not a plain-notification
+   fallback, so this isn't the generic "that's just how Android
+   notifications work" explanation.
+2. **The call screen/notification can reappear ~10s after it already closed,
+   with zero corresponding app-level log lines** — points to a native
+   Telecom call registration not being torn down, possibly linked to an
+   observed race where the phone's own background-decline attempt
+   (`processCallFromPushInBackground` inside the SDK) failed with a Stream
+   error because the kiosk had already ended the call server-side moments
+   earlier.
+
+Both need real investigation, not another guess. No `adb`/`logcat` on this
+phone — it's deliberately disabled (banking apps flag root/adb detection),
+so any diagnosis path has to work without it. A ready-to-use research
+prompt (for Gemini or similar), written specifically for an Oppo Find N5
+running ColorOS, is below — use it as-is rather than re-deriving the
+question from scratch:
+
+> I'm debugging a React Native (Expo) app that receives incoming video calls
+> on Android via `@stream-io/video-react-native-sdk` (v1.37+), which under
+> the hood registers calls through Android's real Telecom framework
+> (`ConnectionService`, self-managed, via `TelecomManager`/`PhoneAccount` —
+> confirmed from the SDK's own source, not a plain-notification fallback;
+> `LegacyCallRepository` only applies below API 26, and this device is far
+> above that).
+>
+> **Target device: Oppo Find N5 (foldable), running ColorOS, Android 15
+> (targetSdkVersion 35 in the build).** Focus specifically on ColorOS —
+> generic AOSP/Telecom docs are not what's needed, only what's DIFFERENT
+> about ColorOS specifically.
+>
+> **Already confirmed, don't re-derive:**
+> - The app's manifest (merged from the SDK's own library manifest) already
+>   declares `MANAGE_OWN_CALLS`, `FOREGROUND_SERVICE_PHONE_CALL`,
+>   `FOREGROUND_SERVICE_CAMERA`, `FOREGROUND_SERVICE_MICROPHONE`, and
+>   `USE_FULL_SCREEN_INTENT`.
+> - On-device, in Android's stock Settings → Apps → Special app access:
+>   "Send full-screen notifications" is ON for this app, "Display pop-ups
+>   while in background" is ON, "Turn screen on" doesn't list this app as an
+>   option (unclear if relevant).
+> - No `adb`/`logcat` access on this device (deliberately disabled).
+>
+> **Symptom 1 — full-screen call UI works locked, only a banner shows
+> unlocked+backgrounded.** A properly registered self-managed
+> ConnectionService call should interrupt to full-screen regardless of lock
+> state, like a real phone call — so this reads as Telecom registration
+> either not happening, or not being honored with full call treatment, on
+> this device specifically while unlocked.
+>
+> **Symptom 2 — the call screen/notification can reappear ~10s after it
+> already closed, with zero corresponding app-level log lines.** Sequence:
+> call ends from the caller's side, the app's own JS-level logic correctly
+> detects this and cleans up (verified via in-app debug logging), the
+> screen closes, then reopens ~10s later with no new app-level logs in
+> between — pointing to a native Telecom registration still alive below the
+> JS layer. One observed possible cause: the phone's own background-decline
+> handler (`processCallFromPushInBackground` inside the SDK) independently
+> tried to reject the call a moment after the caller had already ended it
+> server-side, and that redundant reject failed with an error — suspicion
+> is that failure may leave the native registration un-torn-down, unconfirmed
+> without logcat.
+>
+> **What I want:**
+> 1. What does ColorOS require beyond stock Android for a third-party
+>    self-managed ConnectionService/PhoneAccount to get full native call
+>    treatment (full-screen, works unlocked)? Is there a ColorOS-specific
+>    permission, OEM allowlist, or "trusted calling app" step outside stock
+>    AOSP Telecom? Be specific about WHERE on a ColorOS 15 device (exact app
+>    name if not in stock Settings, exact menu path) — this needs to be
+>    relayed to someone already sent on two failed blind settings hunts
+>    tonight, so it can't be a third guess.
+> 2. Is self-managed PhoneAccount registration known to behave differently
+>    on ColorOS regarding full-screen presentation unlocked vs. locked? Any
+>    known ColorOS bugs/changes (XDA, Oppo dev docs, GitHub issues against
+>    calling SDKs like this one, Twilio's, Agora's, mentioning ColorOS)?
+> 3. For symptom 2: what's the correct way to GUARANTEE a self-managed
+>    ConnectionService registration is torn down even when the app's own
+>    leave()/reject call fails or races against the caller having already
+>    ended the call server-side? Is there a force-disconnect/force-unregister
+>    API that should be used as a fallback, and is this a gap in
+>    `@stream-io/react-native-callingx`'s own handling of that failure path?
+> 4. Realistically: how much of this is "find the right ColorOS toggle" vs.
+>    "needs proper native Android development"? Want an honest read on
+>    whether this is a configuration gap or an SDK/app integration gap.
+>
+> Be direct about documented/verifiable vs. speculative — this project has
+> already been burned once by a plausible-sounding wrong assumption that
+> cost real debugging time before a live device test disproved it.
+
+### Standing rule — read before session 28's rules below
+
+7. **Do NOT send the user hunting through phone settings menus based on a
+   guess.** Two attempts at this in session 28 (a generic Android
+   permissions screen, then a guessed Special-App-Access category) both sent
+   the user through several menu layers to find nothing useful, and cost
+   real goodwill. If a settings check is genuinely needed, either look up
+   the EXACT menu path for the EXACT device/OS version first (as was
+   eventually done for ColorOS via web research), or ask for a screenshot of
+   where the user already is rather than naming a menu that may not exist.
+
+## Session 28 — original log (fix the Bark ring overrun PROPERLY, Fly backend work)
 
 Session 27e (2026-07-30/31, on the Beelink) closed out the iPhone call tests
 and fixed three kiosk display/startup bugs (see "Session 27e outcomes" below
