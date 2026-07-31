@@ -25,7 +25,7 @@ import { getOrCreateClient, clearClient } from './src/streamClient';
 import { onOutgoingCallChange, getOutgoingCall } from './src/outgoingCallStore';
 import { getDebugLines, onDebugLog, debugLog } from './src/debugLog';
 import { callSeq } from './src/callTrace';
-import { markCallPending, clearCallPending, useCallPending, isCallPending } from './src/pendingCall';
+import { markCallPending, clearCallPending, useCallPending, isCallPending, getPendingCid } from './src/pendingCall';
 import { isAccepting, pruneAccepting } from './src/acceptState';
 import { returnToAndroidHome } from './src/returnHome';
 import { postMissedCall } from './src/missedCall';
@@ -499,7 +499,21 @@ function StreamWrapper({ children }) {
             } else {
               if (bgSecs > 30) debugLog(`resume: ${bgSecs}s bg, keeping client (calls=${heldCalls})`);
               // WebSocket presumed alive, but it may have missed ring events.
+              //
+              // Also reconciles IncomingCallPlaceholder here for the same reason as
+              // the cold-connect site below — this is the OTHER path that can leave
+              // it covering a call that already ended: isCallPending() being true is
+              // exactly what routes execution into this branch instead of the
+              // teardown-and-reconnect one above, so a pending cover and a call that
+              // ended while backgrounded can both be true at once here.
               c.queryCalls({ filter_conditions: { ringing: true }, limit: 5, watch: true })
+                .then(res => {
+                  const pendingCid = getPendingCid();
+                  if (pendingCid && !res.calls.some(call => call.cid === pendingCid)) {
+                    debugLog(`pending cid ${pendingCid.slice(-10)} not in ringing calls on resume — clearing cover`);
+                    clearCallPending();
+                  }
+                })
                 .catch(err => console.warn('[Stream] resume queryCalls failed:', err));
             }
             bgAt = null;
@@ -577,7 +591,27 @@ function StreamWrapper({ children }) {
 
         // Fetch any ringing calls we missed while the client was offline (e.g. app
         // was killed/suspended by iOS and woken by an ntfy notification).
+        //
+        // Session 28, Android: reconciles IncomingCallPlaceholder against this
+        // fresh client's own truth, rather than leaving it to run out its full
+        // 25s TTL. The placeholder is driven purely by pendingCall's flag+timer
+        // and has no way to learn the call already ended — reported live as the
+        // full-screen cover sitting for ~20s after reopening the app on a call
+        // that had already been hung up on the kiosk. Confirmed on-device via
+        // the debug strip: `calls=0` immediately on reconnect (this client
+        // already knows there is nothing live) while the placeholder, driven by
+        // its own independent timer, was still showing Accept/Decline. This is
+        // the earliest point that truth is available, so check it here instead
+        // of waiting on the TTL or on CallOverlay ever seeing a real call object
+        // for this cid (which never happens if the call is already gone).
         c.queryCalls({ filter_conditions: { ringing: true }, limit: 5, watch: true })
+          .then(res => {
+            const pendingCid = getPendingCid();
+            if (pendingCid && !res.calls.some(call => call.cid === pendingCid)) {
+              debugLog(`pending cid ${pendingCid.slice(-10)} not in ringing calls on reconnect — clearing cover`);
+              clearCallPending();
+            }
+          })
           .catch(err => console.warn('[StreamWrapper] queryCalls failed:', err));
       } catch (err) {
         // Retry rather than giving up. A cold start woken by a push routinely
