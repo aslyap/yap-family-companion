@@ -169,20 +169,36 @@ Kiosk-side log for one of the passing calls confirms the intended mechanism:
 ```
 (call `family-hub-kath-…4979676`)
 
-**Two open issues, neither root-caused:**
+**Two open issues found — update (2026-07-31, kiosk repo, user away on a walk):**
 
-1. **No missed-call record when the app was foregrounded.** The "sending
-   missed-call note" path above appears to be wired through Bark specifically;
-   the foreground in-app ring path doesn't call it, so ending an unanswered
-   foreground call leaves no trace anywhere that a call happened. Worth
-   deciding whether this matters before Sunday — Kath could plausibly have the
-   app open and still miss/ignore a ring.
-2. **Bark's ring/sound kept playing for ~15s after the kiosk ended the call**,
-   in both of the passing states, even though the notification content had
-   already updated to "Missed call". Not just a footnote — a call that's
-   already over still audibly rings for 15s could read as broken or alarming,
-   especially for Kath overseas with no context on what's happening kiosk-side.
-   Not investigated against source or Apple docs this session.
+1. **No missed-call record when the app was foregrounded — root-caused and FIXED,
+   not yet phone-verified.** Confirmed in `streamVideo.js`: the backend
+   suppresses the initial Bark ring push entirely when the callee's app is
+   foregrounded (it shows its own in-app ring screen instead), so there was no
+   prior Bark banner for `notifyCalleeMissed`'s `level: 'passive'` push to
+   visibly rewrite — it landed silently in Notification Center, unseen. Fixed
+   by switching that push to `level: 'active'` (kiosk repo, commit `8e83d8a`,
+   pushed → Vercel deploy). Still doesn't ring or bypass Focus/DND, just
+   guarantees a banner shows even when nothing rang before it. **Needs a real
+   phone test to confirm** — not done this session, no one available to check
+   the phone.
+2. **Bark's ring/sound overrunning ~15s after kiosk hangup — root-caused,
+   NOT fixable without a UX tradeoff decision.** The ring push uses Bark's
+   `call: '1'` extension (continuous loop until the user taps it) rather than
+   a plain sound. Checked Bark's own tutorial docs: **there is no documented
+   remote-stop for an in-progress `call` loop** — replacing the notification
+   content via the same `id` updates the visible banner but does not appear to
+   interrupt the audio loop already running on the phone, and Apple's own
+   critical-alert sounds are capped at 30s with no confirmed early-cancel
+   mechanism either (checked the Apple Developer Forums — not documented).
+   The only real fix would be giving up `call: '1'`'s continuous single-
+   notification ring in favor of the discrete-burst pattern already used for
+   the ntfy fallback (a few spaced pushes instead of one loop) — trivially
+   stoppable (just don't send more), but a deliberate UX downgrade from what
+   was chosen on purpose (`streamVideo.js:84`: *"much closer to a real
+   incoming call... and no pile-up of banners"*). **Left alone pending your
+   call on that tradeoff** — didn't want to unilaterally change established,
+   deliberate UX while you were away.
 
 ### Evidence-gap note
 
@@ -219,6 +235,13 @@ timestamped **~00:00 on 2026-07-31**, or check whether the Shortcuts
 automation's "Notify When Run" notification actually fired overnight. Either
 one directly proves the automation ran, instead of inferring it from a
 counter that tonight's manual refresh has made uninformative.
+
+**Update (2026-07-31 morning):** user checked — no error in the SideStore
+log, both apps read 7 days. As predicted above, **this doesn't confirm the
+automation ran** (the manual refresh last night resets the same reading).
+**Real test deferred to later today**: check again after enough real time has
+passed since last night's manual refresh that a failed automation would
+actually show as 6.
 
 ---
 
