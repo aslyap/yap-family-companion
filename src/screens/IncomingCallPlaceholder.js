@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getPendingCid } from '../pendingCall';
 import { setCallIntent, useCallIntent } from '../callIntent';
-import { stopRing } from '../ringHeartbeat';
+import { startRingHeartbeat, stopRing } from '../ringHeartbeat';
 
 // Shown from the moment we know a call is arriving until the real ring screen can
 // render (see src/pendingCall.js for why there is a gap at all).
@@ -32,6 +32,24 @@ export default function IncomingCallPlaceholder() {
   const { width, height } = useWindowDimensions();
   const intent = useCallIntent();
   const pressed = intent?.action ?? null;
+
+  // Session 28: the backend's ring watch now RESENDS its push every few
+  // seconds for as long as it lacks evidence the call is still genuinely
+  // ringing (replacing the old single push, which had no way to stop once
+  // sent and rang a fixed 30s regardless). This screen mounting is real
+  // evidence — it only ever mounts from the Bark deep link or a live ring
+  // event naming this cid, i.e. someone just engaged with this exact call —
+  // but it was not being reported, so the backend had NO evidence for the
+  // whole ~5s handover to IncomingCallScreen (see the file comment above)
+  // and kept resending into it. That produced extra Bark pops stacking on
+  // top of this cover screen and the real one taking over underneath it.
+  // IncomingCallScreen starts its own, more precise heartbeat (real
+  // callingState + socket health) once the call object exists; this one is
+  // just to close the gap before that, so briefly overlapping the two is
+  // fine — the backend only cares that beats keep arriving.
+  useEffect(() => {
+    return startRingHeartbeat(getPendingCid(), () => ({ state: 'ringing', healthy: true }));
+  }, []);
 
   const onAccept = () => {
     if (pressed) return;
