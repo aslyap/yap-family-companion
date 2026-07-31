@@ -101,12 +101,54 @@ in the backend's existing ring coordinator, not the kiosk:
   and hit a live endpoint before assuming the code didn't ship — it may have,
   and redeploying to clear the failed release is cheap either way.
 
-**Not done — needs the physical phone, and one instruction at a time per the
-standing rules above:** no live call test yet. Confirm on the spare iPhone
-that (a) the repeated `iphone_x_ring_cycle` pushes actually re-trigger the
-critical-alert sound each time rather than iOS treating an identical resend
-as a silent update, and (b) hanging up from the kiosk now cuts the ring off
-within ~5s instead of the old ~15-20s tail.
+**Live call test run — ✅ core fix confirmed, two follow-on findings.**
+Two calls placed kiosk→spare iPhone (confirmed on the Beelink), left
+untouched ~8s, hung up from the kiosk red button. Confirmed via matching Fly
+logs (`family-hub-kath-1785475926532` and `…966433`): repeated resends do
+re-trigger the critical-alert sound each time (not treated as a silent
+update), and `ring_stop` cuts the repeat off within one 100ms worker tick —
+**the overrun is fixed**, worst case now one file-length, not up to 30s.
+
+1. **Gap between rings too long — root-caused and FIXED.** `REPEAT_MS` was
+   5000ms to match `iphone_x_ring_cycle.caf`'s full 5.0s length, but
+   `ffmpeg silencedetect` showed the file only rings for ~3.63s — the rest is
+   a trailing pause baked into the file — so every cycle played out ~1.37s of
+   dead air plus ~300-600ms of measured Bark relay latency before the next
+   ring landed. Fixed by firing at `REPEAT_MS = 3600` instead (cuts the pause
+   short via the same same-id replace mechanism). Commit `a0cf7ea`, deployed
+   as Fly release **v61, complete**. Not yet re-tested live after this
+   specific change — the timing math is solid (verified against the actual
+   audio file) but the felt result on the phone hasn't been re-confirmed.
+2. **Screen goes black then wakes every cycle — investigated, real ceiling,
+   NOT fixed, parked as a future option.** Bark's Banner Style was already
+   `Persistent` on the spare iPhone (ruled out as a settings fix). Checked
+   Bark's full documented parameter list and cross-checked with Gemini:
+   plain APNs notifications (which is all Bark or any notification-relay
+   service can send) have **no key that keeps the screen lit across a
+   sequence of same-id replacements** — each delivery is its own brief
+   wake-then-sleep event to iOS, full stop, regardless of interruption level.
+   `call:'1'`'s screen persistence came from being **one single delivery**
+   whose sound looped locally within that one delivery's lifecycle, which is
+   exactly the mechanism with the uncontrollable 30s/no-remote-stop problem
+   this whole fix exists to avoid. Gemini's independent read matched: with
+   plain notifications, "persistent screen" and "remotely stoppable" are
+   mutually exclusive; getting both needs a genuine PushKit VoIP push +
+   CallKit incoming-call UI in the companion app itself, which Bark cannot
+   provide.
+   - **Parked compromise (Gemini's "Option C"), not attempted, decided to
+     leave for a future session:** a longer sound file (e.g. the existing
+     5.0s clip concatenated 2× to ~10s, two ring+pause cycles in one
+     delivery) played once per delivery to halve/third the wake frequency,
+     paired with an active "kill push" on `ring_stop` — same `id`, a silent
+     or near-silent sound — to cut off in-progress audio instead of relying
+     on resend cadence alone. Needs: (a) uploading the longer sound to Bark
+     on the phone, (b) uploading a genuinely silent custom sound asset for
+     the kill push (Bark has no documented built-in silent sound), and
+     (c) a live test, since Gemini explicitly flagged that whether a
+     same-id silent replacement actually stops in-progress audio is
+     iOS-version/lock-state dependent and unverified. Real chance it doesn't
+     work as hoped. If picked up later, read this paragraph first — the
+     research is already done, don't re-run it.
 
 ---
 
