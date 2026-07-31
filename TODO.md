@@ -61,6 +61,53 @@ its shape.
 5. **One instruction at a time** when a step needs the physical phone/kiosk.
 6. **Do NOT strip the debug code. Do NOT dispatch an Android build.**
 
+### Session 28 outcomes (2026-07-31, on the Beelink, ~12:50 SGT — daytime, not blocked by quiet hours)
+
+**Correction to the kickoff note above: `calendar_backend.py` was already
+checked out.** It lives inside the `yap-family-home` repo itself (a monorepo —
+`fly.toml`/`Dockerfile`/`Procfile` sit right next to the Vite kiosk frontend),
+not a separate repo. No cloning was needed; found it with a filesystem search
+in ~2 minutes. Worth knowing for future sessions so this isn't re-searched.
+
+**Built and deployed Option 2 as decided** — the repeat logic lives entirely
+in the backend's existing ring coordinator, not the kiosk:
+
+- `calendar_backend.py`: the ring worker (`_ring_worker`) no longer sends the
+  held push once and stops. Once it has positive evidence a call is genuinely
+  still ringing (the existing suppression check, unchanged), it now **resends
+  the same payload every `REPEAT_MS` (5000ms)** — same Bark `id`, so each
+  resend replaces the previous notification in place, reusing the exact
+  recall mechanism already proven for `notifyCalleeMissed`. `ring_stop`
+  (`stopped=True`) is checked every 100ms tick, so the worst-case tail after a
+  kiosk hangup is now whatever's left of one 5s cycle, not up to 30s.
+  `RING_TTL_S` bumped 45→65s so the repeat outlasts Stream's own ≥60s ring
+  timeout instead of cutting off early — **this number is an assumption, not
+  verified against the actual Stream dashboard config**, worth confirming if
+  a real long-unanswered call still goes silent early.
+- `streamVideo.js`: the Bark payload no longer sends `call:'1'`; it plays
+  `iphone_x_ring_cycle` once per push and lets the backend repeat it. Also
+  added a client-side repeat in the pre-existing "backend hold unreachable"
+  fallback path (`sendBarkDirectRepeating`) — that path has no ring worker to
+  repeat anything, so without this it would have quietly regressed from a 30s
+  ring to a single 5s cycle whenever the backend hold itself is down.
+- Commit `48c58b5` on `yap-family-home` main, pushed (Vercel auto-deployed the
+  kiosk frontend). Backend deployed separately via `flyctl deploy` — **first
+  attempt (v59) came back `failed`** in `flyctl releases` on an `unauthorized`
+  error from Fly's own post-deploy smoke-check API call, even though the
+  machine had actually taken the new image and was serving fine (`/docs` gave
+  200) — looked like a transient Fly platform hiccup, not a problem with the
+  image. Redeployed immediately; **v60 is `complete`**. If a deploy ever shows
+  `failed` in `flyctl releases` again, check `flyctl status` for the image tag
+  and hit a live endpoint before assuming the code didn't ship — it may have,
+  and redeploying to clear the failed release is cheap either way.
+
+**Not done — needs the physical phone, and one instruction at a time per the
+standing rules above:** no live call test yet. Confirm on the spare iPhone
+that (a) the repeated `iphone_x_ring_cycle` pushes actually re-trigger the
+critical-alert sound each time rather than iOS treating an identical resend
+as a silent update, and (b) hanging up from the kiosk now cuts the ring off
+within ~5s instead of the old ~15-20s tail.
+
 ---
 
 ## Session 27d — MOVE TO THE BEELINK, iPhone call tests (start here)
