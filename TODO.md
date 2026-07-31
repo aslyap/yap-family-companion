@@ -7,6 +7,24 @@ Session 28 (2026-07-31, on the Beelink) ran long and covered a lot of ground.
 earlier in session 28's own log below, so don't trust "fixed" language further
 down without reading this first.**
 
+### Where things stand — quick status
+
+| Item | Status |
+|---|---|
+| Bark ring overrun (rang 15-20s after kiosk hangup) | ✅ Fixed, confirmed on-device, repeatedly |
+| Android placeholder-TTL stuck screen (~20s after reopening) | ✅ Fixed, confirmed on-device, repeatedly |
+| iOS heartbeat/timing fixes (session 28 build) | ❌ Installed, user reports still broken, no specifics gathered |
+| iOS missed-call handling | ⚠️ User has flagged an issue exists — no repro details captured yet |
+| Android (Oppo) missed-call handling | ⚠️ User has flagged an issue exists — no repro details captured yet. Note: the debug strip showed `missed: posted for H:MM pm` firing correctly in every session 28 test, so if there's a real problem it's likely downstream of that (what the notification actually looks like / does on tap) rather than the posting logic itself — but this is a guess, not confirmed, don't assert it |
+| Android full-screen vs. banner when unlocked | ❌ Open, native-level, research prompt below |
+| Android call screen reappearing ~10s after closing | ❌ Open, native-level, research prompt below |
+
+**First step next session: get concrete repro details for both missed-call
+reports (iPhone and Oppo) before doing anything else.** Neither has specifics
+attached yet — what exactly happens, expected vs. actual, one artifact from
+each side per the standing rules. Don't guess at a fix for either from this
+table alone.
+
 ### Honesty check on "fixed" claims below
 
 Session 28's own write-up (further down this file) calls several things
