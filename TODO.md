@@ -92,19 +92,37 @@ declaring items "accepted limitations" without exhausting research first —
 fair, that push-back was correct. Full prompt used is preserved for re-use
 if this ever needs revisiting.**
 
-- **Symptoms A & B (banner won't live-update while on-screen) — now CLOSED
-  with an actual citation, not a shrug.** Gemini cites Apple's own
-  `UNNotificationRequest` docs: reusing an identifier is documented to
-  replace the notification, but only in the data model `UNUserNotification-
-  Center` and the static Notification Center list manage — the transient,
-  animating banner itself is rendered by SpringBoard and does not subscribe
-  to live data-model changes once painted. Replacing the identifier updates
-  what's shown on the NEXT render (interaction, or pulling the shade down),
-  never the banner already mid-animation. No API exists to force it outside
-  CallKit. **This session's fixes (`dbb56ca`, `CLEAR_BANNER_ON_SUPPRESS`)
-  are correct and working — the residual symptom is a genuine, sourced iOS
-  platform ceiling.** Closing both rows in the status table as intentional
-  limitations, not open bugs.
+- **Symptoms A & B (banner won't live-update while on-screen) — REOPENED
+  2026-08-01. User correctly refused to accept "platform limitation" on one
+  citation alone, especially since the symptom is consistent across every
+  phone state (locked/unlocked/foreground/background) — that consistency
+  was previously read as support for a platform-level explanation, but the
+  user's point stands: consistency also just means "not yet found the real
+  lever," not proof there isn't one. Gemini's `UNNotificationRequest` citation
+  (same-identifier replacement only updates the data model / Notification
+  Center list, not a banner SpringBoard has already painted) is real, but it
+  only rules out one specific mechanism — SAME-ID CONTENT REPLACEMENT. It
+  does not rule out DELETE-THEN-FRESH-RESEND, which is a genuinely different
+  mechanism and hasn't been tried.** Found via Bark's own docs
+  (`docs/en-us/tutorial.md`, fetched directly from `Finb/Bark` on GitHub,
+  2026-08-01): a separate `delete` push parameter exists, undocumented
+  anywhere in this project's prior research — `delete=1`, used together with
+  `id`, is described verbatim as removing "the notification from the system
+  notification center and APP history," and **requires Background App
+  Refresh to be enabled in Settings, or it silently does nothing.** This is
+  NOT the same-id replacement mechanism the closed verdict was about — it's
+  an actual removal. The untested idea: send a `delete=1` push for the stale
+  notification's id FIRST, then a moment later send the real replacement
+  content as what is now a genuinely fresh delivery (nothing already
+  on-screen to fail to repaint) — which, if delete actually clears the
+  active banner (not just Notification Center's list — Bark's doc wording
+  doesn't explicitly confirm this either way), should force a real new
+  banner paint from SpringBoard instead of trying to mutate one already
+  mid-animation. **Not implemented, not confirmed — needs Gemini's help
+  distinguishing "delete clears the banner too" from "delete only clears NC
+  and history," and needs Background App Refresh checked/confirmed enabled
+  for Bark on the spare iPhone before this is even testable.** Both rows in
+  the status table reopened, not closed.
 - **Symptom C (banner/ringtone desync) — Gemini's proposed mechanism is now
   DISPROVEN by a direct live A/B test, not just unconfirmed.** Gemini's
   theory: custom notification sounds play up to 30s regardless of banner
@@ -194,25 +212,31 @@ built or tested yet — no Android build dispatched for these changes):**
    `CallOverlay`'s own `incomingRingCall` filter, which already excludes
    accepting calls the same way.
 
-**None of this is tested. No Android build has been dispatched for these
-changes** — the corrected build already in the user's hands (`29b2244`) does
-NOT contain them. Old standing rule 6/8 from sessions 26-28 ("do NOT dispatch
-an Android build") is treated as superseded — session 29 itself dispatched
-two Android builds once live Android testing became active, and this
-session's kickoff explicitly asked for Gemini's fixes to be implemented. Not
-re-dispatching a build automatically here though, since the user is mid-test
-on the just-confirmed-working `29b2244` build — **ask before dispatching a
-new Android build with these changes**, so a fresh install doesn't land while
-they're still confirming the ring-sound/Accept/full-screen-intent regressions
-are actually fixed on the current one.
+**UPDATE, same session: built and shipped.** Once these 3 fixes were
+committed (`837f389`) the user approved pushing and dispatching a combined
+Android build immediately — `29b2244`'s corrections plus this session's 3
+Gemini fixes together in one APK, avoiding a second separate install.
+Build succeeded: https://github.com/aslyap/yap-family-companion/actions/runs/30683450257
+(commit `837f389`, artifact `yap-family-companion-apk`). **Handed to the
+user, NOT YET INSTALLED OR TESTED as of end of session 30** — the session's
+remaining time went entirely to the iOS banner/refresh investigation below
+instead (per explicit user redirect: "we will check Android next session").
 
-**Next steps, in order:** (1) get the user's on-device results for both
-platform installs already handed off; (2) once `29b2244`'s regression
-re-tests are confirmed good, dispatch a new Android build with this
-session's 3 changes and live-test symptoms 2/3/4 specifically (the
-reappearing-call loop, the foreground double-UI, and the ~20s Accept spin);
-(3) still waiting on a repro for the Oppo missed-call-handling report — ask,
-don't guess, same standing rule as session 29.
+**Next session, Android, in order:**
+1. Install the combined build (`837f389`, link above) on the Oppo.
+2. Re-test the `29b2244` regressions first (ring sound back, Accept/join not
+   hanging, full-screen-intent permission prompt reappearing on this
+   install) — confirm the baseline is good before trusting the 3 new
+   fixes on top of it.
+3. Then live-test the 3 new fixes specifically: the reappearing-call loop
+   (symptom 2 — watch whether a stale call object ever needs the forced
+   `leave()` safety net to fire, check the debug strip for "forced leave"
+   lines), the foreground double-UI (symptom 3 — confirm the native banner's
+   own Accept now transitions straight to the active call screen with no
+   competing JS ring screen), and the ~20s Accept spin (symptom 4 — confirm
+   a single tap now works without a second press).
+4. Still waiting on a repro for the Oppo missed-call-handling report — ask,
+   don't guess, same standing rule as session 29.
 
 ## Session 29 progress — iOS mostly root-caused and fixed (build ready to install), Android deeply investigated with concrete Gemini-confirmed fixes queued, none implemented yet
 
@@ -265,11 +289,11 @@ state (2026-08-01 repro, gathered directly from the user, not guessed).
 | Phone state | Symptom | Status | Plan |
 |---|---|---|---|
 | Locked | Sometimes opens to Bark's own Messages tab before the call screen | 🔶 **Gemini round 2 (2026-08-01): concrete, testable hypothesis, not solved.** Correlates with companion app swipe state because a force-quit app gets iOS's static LaunchScreen instantly (zero app work, so Bark's own UI never lingers), while a merely-backgrounded app must actually wake its JS thread/AppState/WebSocket before iOS completes the handoff — if that blocks the main thread 200-500ms, Bark stays visible for the wait. Ties directly to real resume-path code already read this session. | **Ask the user to watch closely on the next natural resume**: does a force-quit reopen show the static launch screen instantly the moment Bark disappears, vs. a backgrounded reopen showing a frozen/stale app snapshot with a beat before it responds? Confirms or denies before any code is written — not a Mac/Xcode-dependent check. |
-| **Any** (user corrected 2026-08-01: not locked-specific — happens across phone states, table miscategorized it) | Sometimes Bark banner sits on top of the just-opened call screen | ✅ **CLOSED 2026-08-01 — genuine, sourced iOS platform limitation, confirmed via Apple's own `UNNotificationRequest` docs (Gemini round 2), not a shrug.** Same-identifier replacement updates the data model `UNUserNotificationCenter` manages and the static Notification Center list — it does not force a live repaint of a banner SpringBoard has already painted and is mid-animation on. No API exists to do this outside real CallKit. Being phone-state-independent is actually consistent with this verdict — a SpringBoard rendering ceiling has no reason to care whether the screen is locked. This session's fix (`CLEAR_BANNER_ON_SUPPRESS`) is very likely working correctly; the residual symptom is the platform ceiling itself. | **None. Closed as intentional iOS behavior**, left deployed since harmless. |
-| **Any** (same correction as above) | Kiosk-reject leaves "Yap Family calling" banner instead of "Missed call" | ✅ **CLOSED 2026-08-01 — same root cause and same citation as the row above.** Banner stays "Yap Family calling" until swiped, then correctly shows "Missed call" — confirms the backend fix (`dbb56ca`) sends the right content; the swipe-to-reveal gap is the identical live-refresh ceiling, now sourced rather than inferred. | **None. Closed as intentional iOS behavior.** Functionally correct once revealed. |
+| **Any** (not locked-specific — happens across all phone states) | Sometimes Bark banner sits on top of the just-opened call screen | 🔶 **REOPENED 2026-08-01 — user correctly rejected the one-citation "platform limitation" close.** Gemini's `UNNotificationRequest` citation only rules out SAME-ID CONTENT REPLACEMENT as a live-refresh mechanism, not DELETE-then-FRESH-RESEND, which Bark's own docs describe as a genuinely different, untried mechanism (`delete=1` + `id` — see prose write-up above). This session's fix (`CLEAR_BANNER_ON_SUPPRESS`) uses same-id replacement, so its ineffectiveness doesn't rule out the delete-based approach. | **Send the new Gemini prompt** (below) to confirm whether `delete=1` actually dismisses an active on-screen banner (not just Notification Center/history), and whether Background App Refresh is enabled for Bark on the spare iPhone (required for `delete` to work at all, per Bark's docs). If confirmed viable, build a delete-then-resend backend experiment next session. |
+| **Any** (not locked-specific — happens across all phone states) | Kiosk-reject leaves "Yap Family calling" banner instead of "Missed call" | 🔶 **REOPENED 2026-08-01 — same reasoning as the row above.** Banner stays "Yap Family calling" until swiped, then correctly shows "Missed call" — the backend fix (`dbb56ca`) sends the right content via same-id replacement, but same-id replacement is the mechanism now suspected of being avoidable via delete-then-resend instead. | **Same as above** — pending the Gemini prompt's answer on `delete=1`'s actual scope. |
 | Unlocked, app in foreground | Sometimes BOTH Bark AND the Yap Family call screen open (should be just the call screen) | ❌ **Live-tested 2026-08-01, still happens — but now genuinely diagnosed, not a guess.** Read the Fly backend's own logs for the exact test calls: 2 of 3 timed calls show the real Bark ring firing because the phone's heartbeat POST took 6–14s to reach the backend, not the ~1s the 1800ms margin assumed — the bump was irrelevant to a gap that size. Most likely cause: `App.js`'s full client-teardown-and-reconnect path (fires after >30s backgrounded) delaying `IncomingCallScreen` from mounting and heartbeating. **Not confirmed** — needs a debug-strip screenshot from a live slow instance. | **Get a debug-strip screenshot on the next occurrence**, specifically watching for a `resume: reconnecting after Xs bg` line right before the affected call. No code change until that confirms or rules out the reconnect theory. |
 | Unlocked, app in foreground | Ending call from kiosk | ✅ Works correctly, no issue | None needed. |
-| Unlocked, app backgrounded | Only Bark notification shows (correct), but mistimed: banner disappears while the ringtone keeps playing (audio/visual desync). Working correctly = banner stays on screen in sync with the sound. | ❌ **Gemini round 2's proposed mechanism (banner-style-driven auto-dismiss timing) is now DISPROVEN, not just unconfirmed.** User ran the actual A/B test live on-device 2026-08-01: Banner Style was `Persistent` (matching session 28's record — that record was correct, nothing had reverted), switched it to `Temporary`, symptom unchanged either way. If the banner-lifetime-vs-30s-sound mechanism Gemini proposed were right, Temporary should have made the desync visibly worse or at least different — it didn't, at all. This rules out banner style as a factor entirely, not just as an already-tried fix. Back to genuinely unexplained; still corroborated at a general level by `Finb/Bark#256` (repeated/looping critical alerts losing sync across components), but the specific mechanism proposed for it is now known wrong. Reviewed the rest of Bark's notification settings screen via a live screenshot (2026-08-01) looking for any other lever: Critical Alerts on, Lock Screen/Notification Centre/Banners all checked, Sounds/Badges on, Show Previews Always, Time-Sensitive off (irrelevant, different interruption level), Notification Grouping `Automatic` — nothing else here is a backed hypothesis. **User was told to revert Banner Style back to `Persistent`** (no proven benefit to Temporary, and Persistent is strictly better for a call alert's visibility regardless of this symptom). Notification Grouping → `Off` was flagged as a zero-cost, low-confidence guess worth a five-second try, explicitly NOT presented as a real lead the way the (now-disproven) Banner Style theory was. | **Nothing further planned** — the one concrete lever (banner style) is now conclusively ruled out by direct test, not assumption. Revisit only if new research finds a different, testable mechanism. |
+| Unlocked, app backgrounded | Only Bark notification shows (correct), but mistimed: banner disappears while the ringtone keeps playing (audio/visual desync). Working correctly = banner stays on screen in sync with the sound. | ❌ **Gemini round 2's proposed mechanism (banner-style-driven auto-dismiss timing) is now DISPROVEN, not just unconfirmed.** User ran the actual A/B test live on-device 2026-08-01: Banner Style was `Persistent` (matching session 28's record — that record was correct, nothing had reverted), switched it to `Temporary`, symptom unchanged either way. If the banner-lifetime-vs-30s-sound mechanism Gemini proposed were right, Temporary should have made the desync visibly worse or at least different — it didn't, at all. This rules out banner style as a factor entirely, not just as an already-tried fix. Back to genuinely unexplained; still corroborated at a general level by `Finb/Bark#256` (repeated/looping critical alerts losing sync across components), but the specific mechanism proposed for it is now known wrong. Reviewed the rest of Bark's notification settings screen via a live screenshot (2026-08-01) looking for any other lever: Critical Alerts on, Lock Screen/Notification Centre/Banners all checked, Sounds/Badges on, Show Previews Always, Time-Sensitive off (irrelevant, different interruption level), Notification Grouping `Automatic` — nothing else here is a backed hypothesis. **User was told to revert Banner Style back to `Persistent`** (no proven benefit to Temporary, and Persistent is strictly better for a call alert's visibility regardless of this symptom). Notification Grouping → `Off` was flagged as a zero-cost, low-confidence guess worth a five-second try, explicitly NOT presented as a real lead the way the (now-disproven) Banner Style theory was. **Tried 2026-08-01, also confirmed no change.** Two concrete settings now conclusively ruled out by direct test (Banner Style, Notification Grouping), not assumption. | **Nothing further planned from settings** — both concrete levers tried and ruled out. The `delete`-push mechanism being investigated for symptoms A/B above (see reopened section) may be relevant here too if it pans out, since it's the same underlying "force a fresh delivery instead of updating an existing one" idea — revisit this row if that research lands anything real. |
 | Unlocked, app backgrounded | Ending call from kiosk silences the ring, but the Bark banner remains, AND opening the app shows a STUCK full-screen call screen that cannot be ended — errors with Stream error 103: `"reject call failed with error: Cannot accept/reject a call that is not in progress, did you call call.join, call.ring or call.notify before?"` | ✅ **FIXED (`e88b9a2`) — confirmed on-device 2026-08-01.** Root cause: `IncomingCallScreen.js`'s `decline()` only cleared the busy spinner when `reject()` failed, never forcing local state to LEFT, so the screen stayed classified as an incoming ring forever. Now falls back to `call.leave()`. | **Closed.** No further action. |
 | — | iOS heartbeat/timing fixes generally | Superseded by the specific symptoms above — don't chase this as a separate item | N/A — folded into the rows above. |
 | — | iOS missed-call handling | Superseded — this session's iOS work covers the actual reported symptoms above | N/A — folded into the rows above. |
