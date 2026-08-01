@@ -388,6 +388,29 @@ export default function IncomingCallScreen({ onAccepted, onDeclined, onDeclineSt
     } catch (e) {
       console.warn('[IncomingCall] decline failed:', e);
       debugLog(`reject FAILED: ${e?.message ?? e}`);
+      // Session 29: reject() failing here — confirmed live, "stream error code
+      // 103: reject call failed with error: Cannot accept/reject a call that
+      // is not in progress" — almost always means the call is ALREADY OVER
+      // server-side (the kiosk ended it moments earlier and won this exact
+      // race). Previously this just cleared `busy` and stopped: with the
+      // reject rejected, the call's local callingState never leaves
+      // RINGING/IDLE, so CallOverlay's incomingRingCall filter (App.js) keeps
+      // matching it forever — the user was stuck on an undismissable
+      // Accept/Decline screen for a call that is provably already dead, and
+      // every retry failed identically for the same reason.
+      //
+      // Force local state to LEFT regardless of what the server thinks.
+      // leave() is already known-safe to call here even when the call is
+      // already over — the comment above this catch documents it throwing
+      // "Cannot leave call that has already been left", which is harmless.
+      try {
+        await call.leave();
+        debugLog('leave (forced after reject failure) ok');
+      } catch (e2) {
+        console.warn('[IncomingCall] forced leave after reject failure also failed:', e2);
+        debugLog(`forced leave FAILED: ${e2?.message ?? e2}`);
+      }
+      onDeclined?.();
       setBusy(null);
     }
   }
