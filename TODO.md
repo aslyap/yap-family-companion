@@ -1,26 +1,146 @@
 # yap-family-companion — Session Handoff
 
-## Session 29 progress — iOS root-caused + one fix built, Android still needs its repro
+## Session 29 progress — iOS mostly root-caused and fixed (build ready to install), Android deeply investigated with concrete Gemini-confirmed fixes queued, none implemented yet
 
-Picked up the kickoff below (session 28, 2026-07-31). Companion `main` was
-`912754e`, kiosk `main` was `b4e32fd`, both already up to date — no drift this
-time. **Read the rest of this session's notes before session 28's own log
-further down; two of the three iOS symptoms are now root-caused with a fix
-built (not yet deployed/tested), and the third turned out to not be fixable
-in this codebase at all.**
+Picked up the kickoff below (session 28, 2026-07-31). Ended at companion
+`main` = `29b2244`, kiosk `main` = `e2f1b72`. Two full rounds of repro
+gathered directly from the user (locked-phone symptoms, then a full
+platform × phone-state matrix), plus one live test round on the Oppo and a
+full Gemini research pass — nothing in this session was guessed from a
+table alone. **Read the rest of this session's notes before session 28's
+own log further down.**
+
+**Where things actually stand, honestly:**
+- **iOS**: 3 of 4 real bugs fixed with high confidence (backend ordering
+  race, stuck-screen-on-reject-failure, resume/deep-link race), 1 backend
+  timing experiment unverified. A build with all of it is ready
+  (https://github.com/aslyap/yap-family-companion/actions/runs/30677422826)
+  but **NOT YET INSTALLED on the spare iPhone or tested.**
+- **Android**: one live test round already happened this session (build
+  `7083d49`) — it caught a bad fix (`skipIncomingPushInForeground`) that
+  broke ring sound and call-joining, which has been reverted, plus a real
+  full-screen-intent-prompt bug that's now fixed. A corrected build
+  (`30681244746`) is compiling as of this writing. **Separately, Gemini
+  research came back with 4 concrete, mostly-actionable answers — see
+  "Gemini's answer" section below — none of those fixes are implemented
+  yet.** This is the most valuable unstarted work going into next session.
+- **Do not treat any "Fixed" tag below as confirmed until it's actually
+  been tested on-device** — this table already caught itself being wrong
+  once this session (the full-screen-intent prompt was wrongly assumed
+  "expected" until the user corrected it directly).
 
 ### Where things stand — quick status
 
-| Item | Status |
+Fixed/deployed items first, then the full issue table by platform × phone
+state (2026-08-01 repro, gathered directly from the user, not guessed).
+
+| Fixed this session | Status |
 |---|---|
-| Bark ring overrun (rang 15-20s after kiosk hangup) | ✅ Fixed, confirmed on-device, repeatedly |
-| Android placeholder-TTL stuck screen (~20s after reopening) | ✅ Fixed, confirmed on-device, repeatedly |
-| iOS symptom: Bark opens to its own Messages tab before the call screen | 🔶 Reopened — confirmed to correlate with the COMPANION app's swipe state (not Bark's), which existing research doesn't explain. A related companion-app resume bug was found and fixed (`resumeCover`/AppState race, see below); untested whether it affects this. Not accepting the $99/yr-CallKit conclusion as final until that's tested. |
-| iOS symptom: Bark banner sits on top of the just-opened call screen | 🔶 Root-caused, EXPERIMENTAL fix deployed (`d44b560`, Fly v63, `CLEAR_BANNER_ON_SUPPRESS`) — genuinely unverified whether it works, one-line revert if it makes things worse. NOT tested live. See "iOS symptom 2" below. |
-| iOS symptom: kiosk-reject leaves "Yap Family calling" banner instead of "Missed call" | 🔶 Root cause confirmed, fix committed (`dbb56ca`) and deployed to Fly (v62, `/docs` returns 200) — NOT yet tested with a real call. See "iOS symptom 3" below |
-| Android (Oppo) missed-call handling | ⚠️ Still no repro details — user asked to fix iPhone first this session. **Get this before touching Android missed-call code.** |
-| Android full-screen vs. banner when unlocked | ❌ Open, native-level, research prompt below |
-| Android call screen reappearing ~10s after closing | ❌ Open, native-level, research prompt below |
+| Bark ring overrun (rang 15-20s after kiosk hangup) | ✅ Fixed, confirmed on-device, repeatedly (session 28) |
+| Android placeholder-TTL stuck screen (~20s after reopening) | ✅ Fixed, confirmed on-device, repeatedly (session 28) |
+| Backend: stray ring resend can overwrite a missed-call note | ✅ Fixed (`dbb56ca`), deployed Fly v62, NOT call-tested |
+| Backend: EXPERIMENTAL clear-banner push on suppress | 🔶 Deployed (`d44b560`), Fly v63, UNVERIFIED, one-line revert available |
+| Companion app (both platforms): AppState-vs-deep-link resume race | ✅ Fixed (`8cfe3ef`). User approved overriding standing rule 6 — rolled into both the iOS and Android builds. |
+| iOS: stuck full-screen call screen after a lost reject()-vs-kiosk-hangup race | ✅ Fixed (`e88b9a2`), root-caused via the EXACT error text the user hit — see "iOS symptom: stuck screen" below. Rolled into the next iOS build (dispatched: https://github.com/aslyap/yap-family-companion/actions/runs/30677422826). |
+| Backend: EXPERIMENTAL RING_HOLD_MS 1200→1800ms (more margin vs. foreground duplicate) | 🔶 Deployed (`e2f1b72`), UNVERIFIED, one-line revert available |
+| Android: `skipIncomingPushInForeground` — banner+full-screen duplicate when foregrounded | ❌ REVERTED (`95de4c3`) — live-tested, caused worse regressions (no ring sound, Accept hangs). Symptom back to unfixed. See Android table below. |
+| Android: setup-prompt IIFE (battery opt + full-screen-intent permission) had zero error handling, could silently skip the full-screen-intent prompt entirely | ✅ Fixed (`29b2244`), each step now try/catched + reported to debug strip, storage keys bumped to re-fire once. Rolled into build. NOT yet tested. |
+
+#### iOS — by phone state (spare iPhone)
+
+| Phone state | Symptom | Status | Plan |
+|---|---|---|---|
+| Locked | Sometimes opens to Bark's own Messages tab before the call screen | 🔶 Reopened — correlates with companion app's swipe state, not fully explained. See "iOS symptom 1". | **Nothing planned.** Real fix needs PushKit+CallKit ($99/yr Apple Dev account) — declined. Accepted as a permanent low-priority limitation; don't re-raise unless it gets worse. |
+| Locked | Sometimes Bark banner sits on top of the just-opened call screen | 🔶 Two unverified fixes deployed, see "iOS symptom 2" | **Live-test on the next real call.** Both the backend clear-banner experiment and the resume-race fix are deployed — next unanswered/slow-answered call will show whether either helped. No further code queued unless that test is inconclusive. |
+| Locked | Kiosk-reject leaves "Yap Family calling" banner instead of "Missed call" | 🔶 Fix deployed, NOT call-tested, see "iOS symptom 3" | **Live-test on the next real call.** Call the spare iPhone, let it ring, reject from the kiosk, confirm it shows "Missed call" and stays that way. High confidence this is actually fixed — just needs the test. |
+| Unlocked, app in foreground | Sometimes BOTH Bark AND the Yap Family call screen open (should be just the call screen) | ❌ NEW 2026-08-01, not yet investigated | **Live-test the `RING_HOLD_MS` bump (1200→1800ms) on the next call.** If the duplicate still happens, no further fix is queued — would need fresh investigation, not a guess. |
+| Unlocked, app in foreground | Ending call from kiosk | ✅ Works correctly, no issue | None needed. |
+| Unlocked, app backgrounded | Only Bark notification shows (correct), but mistimed: banner disappears while the ringtone keeps playing (audio/visual desync). Working correctly = banner stays on screen in sync with the sound. | 🔶 Researched, strongly corroborated by Bark's own issue tracker (`Finb/Bark#256`) as a likely genuine iOS platform limitation with repeated/looping alerts — not something payload changes fix. No code change made. See write-up below. | **Nothing planned.** Treated as an accepted iOS/Bark platform limitation, not a bug in this app. Would only revisit if it starts happening on genuinely answered calls too, not just unanswered ones. |
+| Unlocked, app backgrounded | Ending call from kiosk silences the ring, but the Bark banner remains, AND opening the app shows a STUCK full-screen call screen that cannot be ended — errors with Stream error 103: `"reject call failed with error: Cannot accept/reject a call that is not in progress, did you call call.join, call.ring or call.notify before?"` | ✅ FIXED (`e88b9a2`) — root cause: `IncomingCallScreen.js`'s `decline()` only cleared the busy spinner when `reject()` failed, never forcing local state to LEFT, so the screen stayed classified as an incoming ring forever. Now falls back to `call.leave()`. Rolled into next iOS build, NOT yet tested. | **Live-test on the next real call.** Reproduce the original scenario (kiosk ends call while phone is backgrounded), confirm the screen dismisses instead of getting stuck. High confidence. |
+| — | iOS heartbeat/timing fixes generally | Superseded by the specific symptoms above — don't chase this as a separate item | N/A — folded into the rows above. |
+| — | iOS missed-call handling | Superseded — this session's iOS work covers the actual reported symptoms above | N/A — folded into the rows above. |
+| Any (post-connect) | Phone publishes video at an accidental 720p (should be up to 2160p per the call type's own target_resolution) | 📋 **PARKED, not touched this session.** Pre-existing finding from an earlier session: `IncomingCallScreen.js` (shared with Android) calls `call.camera.selectDirection('front')` with no width/height, and react-native-webrtc's constraint defaults silently cap it at 1280x720. Documented recommendation: set 1920x1080 explicitly rather than just removing the constraint — removing it outright risks overshooting to 4K and producing a slideshow if bitrate can't keep up (network ceiling has never been measured on a real call). User's call: park for a dedicated session with proper bitrate measurement, add to this list so it isn't dropped. | **Dedicated future session.** Set `target_resolution` to 1920x1080 explicitly in the kiosk's `settings_override`, then measure actual bitrate/framerate on a real call before/after — not a same-session drop-in change. |
+
+#### Android — by phone state (Oppo Find N5)
+
+**Live-tested 2026-08-01 against build `7083d49` (tag shown on the debug
+strip). Results below fold in that test.**
+
+| Phone state | Symptom | Status | Plan |
+|---|---|---|---|
+| Locked | Full-screen "Yap Family calling" comes up | ✅ Confirmed correct, live | None needed. |
+| Locked | Ending call from kiosk | ✅ Confirmed works, live | None needed. |
+| Locked | ~10s after kiosk ends the call, ANOTHER full-screen call comes up, repeatedly. Force-stop sometimes needed, not a manual button press. | ⚠️ Not fixed. **Gemini confirmed (2026-08-01) the `call.missed`-dashboard-push theory is very plausibly right, AND identified a concrete native-teardown gap** — see "Gemini's answer" write-up below. Not guesswork anymore. | **Concrete fix identified, not yet implemented:** find Android's reject/decline failure path (likely `processCallFromPushInBackground` or this app's own decline handler) and mirror the iOS fix already shipped (`e88b9a2`) — force a local teardown when the API-level reject/leave call fails, so the native Telecom `Connection` object always gets `setDisconnected()`+`destroy()` even when the server says the call's already over. Next session's top priority. |
+| Unlocked, app not foreground | Only a banner shows (not full screen) | ✅ **CLOSED — confirmed intentional Android behavior, not a bug.** Gemini, quoting AOSP docs: "you are chasing a non-existent OS behavior... this is not a ColorOS restriction, a missing permission, or an OEM bug. It is working exactly as designed... even the native system dialer behaves this way." | **None. Stop tracking as an issue** — reclassify as expected behavior if this table is ever trimmed. |
+| Unlocked, app in foreground | BOTH a banner AND the full-screen call show | ❌ **REVERTED (`95de4c3`).** The `skipIncomingPushInForeground` fix (`e767bc0`) was live-tested and caused three worse regressions in this exact scenario: no ringtone sound, and Accept doing nothing (see below — turned out to be the SAME root issue as the reappearing-call loop, not a separate bug). Reverted; this symptom is back to unfixed. | **Concrete architecture fix identified, not yet implemented.** Gemini: the banner and the ringtone/Telecom-registration notification are "the same entity" — can't suppress one without the other. Correct pattern: when foregrounded, let the native banner win and DON'T render this app's own JS full-screen ring UI at all; listen for the native "Accept" tap and transition straight to the active-call screen. This is a real design change to `CallOverlay`/`IncomingCallScreen` (`App.js`), not a one-liner — needs its own session. |
+| Unlocked, app in foreground | No ringtone sound, full-screen UI shows silently | ✅ Root cause understood (caused by `skipIncomingPushInForeground` suppressing the notification channel that plays Android's ring sound) — fixed by reverting. Not yet re-tested. | **Re-test with the corrected build (this round).** Should just be back to normal now that the flag is reverted — confirm and close. |
+| Unlocked, app in foreground | Accept does nothing, call hangs | ✅ Root cause understood (see "reappearing call" write-up below — this WAS the reappearing-call bug, just observed from the accept side: stuck on `IncomingCallPlaceholder`, no real call object behind it) — fixed by reverting `skipIncomingPushInForeground`. Not yet re-tested. | **Re-test with the corrected build.** If it recurs even after the revert, that's evidence it's NOT solely caused by that flag and ties into the still-unsolved reappearing-call mystery above — treat as a strong new clue, not a surprise. |
+| Any (clean install) | Full-screen-intent permission prompt didn't appear at all, required a manual settings hunt to grant | ✅ FIXED (`29b2244`) — **correction: my first read ("expected, not a regression — AsyncStorage persists across reinstall") was WRONG, per the user directly, who confirmed this was a genuinely clean install.** Real bug found: the setup IIFE (battery-opt + full-screen-intent prompts) had NO error handling — any step throwing silently swallowed the rest, including this prompt, and a clean install is exactly the scenario most likely to hit a fresh-install edge case. Each step now try/catched and reported to the debug strip; storage keys bumped so this device gets re-prompted once. NOT yet tested. | **Re-test on next install/build.** Watch for the prompt reappearing; if it STILL doesn't, the debug strip should now show a `setup: ... prompt FAILED: <reason>` line — a real error message instead of silence, which is itself the diagnostic if this needs a second pass. |
+| Any | Accept sometimes spins ~20s before working, second press connects | ⚠️ Not fixed, but **Gemini confirmed the race theory and gave a concrete fix pattern** — see write-up below. | **Concrete fix identified, not yet implemented:** the instant Accept is pressed, set a local join-in-flight lock for that `call_cid` (this app already has the pattern — `src/acceptState.js`'s `markAccepting`/`isAccepting`, used elsewhere to guard against a double `join()`) and make `App.js`'s `queryCalls`-based reconciliation (both the cold-connect site and the AppState-resume site) check `isAccepting(cid)` before clearing the pending-call cover — don't let a reconciliation false-negative undo an in-flight accept. |
+| Any (post-connect) | Kiosk video sometimes doesn't show after the call connects | ❌ NEW 2026-08-01, logged per user request, not investigated | **Needs a repro before anything else** — how often does it happen, does it correlate with anything (cold vs. warm start, foreground vs. background accept, etc)? Not investigating further until there's something concrete to go on, per this project's own standing rule. |
+| Any (post-connect) | Phone publishes video at an accidental 720p (should be up to 2160p) | 📋 **PARKED, not touched this session** — same shared-code issue as the iOS row above, see there for the full write-up. Applies identically to Android. | **Dedicated future session**, same plan as the iOS row — one code change, shared between platforms. |
+| — | Oppo missed-call handling | ⚠️ Still no repro details gathered — deferred by user, get this before touching missed-call code specifically | **Waiting on the user** — ask what actually happens vs. expected on a missed call, same as was done for iOS earlier this session. Not guessing at this from the table alone. |
+
+**Reappearing call loop — re-examined against the live debug-strip
+screenshot from this test (2026-08-01), and NOT actually fixed, contrary
+to first impression.** Timeline read directly off the strip: call `#3` was
+genuinely accepted and joined (`accept: joined ok in 1654ms`), ended
+normally (`returnHome`, `endCall ok`) at `50:26`. Then, with no user
+action: `#4 call seen by=family-hub` at `50:41` (~15s later), itself torn
+down within 4s (`50:45`, another `returnHome`/`endCall ok`) — meaning it
+was never actually shown/accepted, just silently ended, exactly like a
+phantom ring. A reconnect fired at `50:49`, then ANOTHER reconnect at
+`50:58` (only 7s after the previous one finished connecting — two
+reconnects in quick succession is itself new/odd). Then `#5 call seen by=
+family-hub` at `51:00` (~19s after `#4`) — this is the one stuck on screen
+in the screenshot, Accept/Decline visible, no user action logged yet. This
+is the SAME ~10-20s-later-unprompted-reappearance pattern as before,
+observed end-to-end in one continuous log, not inferred. **When the user
+tried to Accept call `#5`, it hung — and the debug strip's green text was
+missing from that screen, which only ever happens when
+`IncomingCallPlaceholder` (the pre-call cover, deliberately visually
+identical to the real `IncomingCallScreen` but with no debug strip and no
+real call behind it — see `App.js`) is showing instead of the real call
+screen.** That means call `#5` never actually had a proper call object
+back it in `useCalls()` — Accept had nothing to act on, hence the hang.
+This is a direct, load-bearing symptom of the SAME underlying bug, not a
+separate one — and gives a genuinely new, sharp diagnostic angle: whatever
+creates these phantom calls (`#4`, `#5`, ...) is doing so in a way that
+sometimes leaves the JS layer's own call-recovery machinery unable to
+actually resolve them into a real, joinable call object. The "two distinct
+call_cid" mystery from earlier and this "stuck on placeholder" symptom are
+very likely the same bug looked at from two different angles. Still
+unsolved — the Gemini research prompt below already covers this; worth
+adding this new "stuck on placeholder, unjoinable" angle to it if picked
+up again.
+
+**Clarified by the user, same test round: the "hang" was not permanent —
+first Accept press spins for ~20s, then the spinner stops and the button
+becomes tappable again, and a SECOND press connects successfully.** A
+second debug-strip screenshot (different call, `#1` this time, `cid` tail
+`865294`) shows: call seen at `54:25.613`, then `54:36.189 pending cid
+5552865294 not in ringing calls on resume — clearing cover` — this is the
+`queryCalls` reconciliation (added this session, see the AppState resume
+fix) concluding the call ISN'T ringing and clearing the placeholder cover,
+**even though the call genuinely was still ringing** (it joined
+successfully 9 seconds later, at `54:45`–`54:46`). That reconciliation
+firing a false positive is a real, newly-introduced-this-session
+suspect for the ~20s delay: it's plausible the placeholder gets cleared
+prematurely, the real `IncomingCallScreen` doesn't immediately take over
+cleanly, and whatever the user's first tap actually hit doesn't resolve
+into a real `accept()` call until ~20s later. NOT fully diagnosed — only
+one `#1 accept: joining` line appears in this log (at `54:45.001`,
+immediately followed by a clean join), so there's no direct evidence of a
+first FAILED attempt, only the reconciliation's false-positive clear
+sitting suspiciously in the middle of the ~20s gap. **Deliberately not
+chasing this further blind right now** — the `skipIncomingPushInForeground`
+episode is a fresh lesson in not shipping another guess before testing
+what's already changed. Revisit with a clean test once the revert build
+(`95de4c3`) is confirmed working.
+
+**New item, same test round: kiosk video sometimes doesn't show after the
+call connects.** Not yet investigated at all — logged here per the user's
+request, not chased this session.
 
 ### iOS — three symptoms, gathered via direct Q&A (2026-08-01), not guessed from the table
 
@@ -254,6 +374,248 @@ the Oppo missed-call report** — still nothing gathered, the user asked to
 deal with iPhone first this session. Don't guess at a fix for it from the
 table alone, same rule as before.
 
+### Second round of repro (2026-08-01, same session) — full state matrix, both platforms
+
+User ran through every phone-state combination and reported back while away
+from the keyboard (went for a run — answered two clarifying questions first,
+more below marked OPEN). Full symptom table is in the status table at the
+top; this section is the investigation detail for the NEW items only.
+
+**iOS — stuck full-screen call screen (unlocked, app backgrounded) — FIXED,
+see status table above.** Root-caused precisely via the user's own copy of
+the error text, not guessed. Worth restating the mechanism since it explains
+BOTH the iOS symptom and is likely relevant to Android's reappearing-call
+issue too (see below): Stream's server validates reject/leave calls against
+its own authoritative call state, and when the kiosk ends a call moments
+before the phone's own decline reaches the server, the server correctly
+rejects the phone's reject() as invalid — the call already isn't "in
+progress" from the server's point of view. That's not a bug in Stream's API,
+it's an expected race in any push-based ringing system. The bug was entirely
+in how this app handled that expected failure: `IncomingCallScreen.js`'s
+`decline()` catch block only cleared the busy spinner, never forcing the
+call's LOCAL state away from RINGING/IDLE — so `CallOverlay`'s
+`incomingRingCall` filter (`App.js`) kept matching it forever, and every
+retry failed identically since the server was correctly, consistently
+right that the call was over. Fixed by falling back to `call.leave()` in
+that catch block, which forces local state to LEFT regardless of the
+server's opinion.
+
+**iOS — Bark banner disappears while the ringtone keeps playing (unlocked,
+app backgrounded) — NOT yet investigated in code.** User's own description
+of correct behavior: "banner will stay on in sync with the noise." Current
+behavior: "banner will disappear and ringing keeps going." Not yet chased
+down. Two candidate directions, neither confirmed: (a) iOS may not
+re-present a visual banner on every same-id critical-alert replacement even
+though it re-plays the sound each time — i.e. the backend's `_ring_worker`
+resend cadence could be correctly re-triggering audio on every `REPEAT_MS`
+cycle while iOS only shows the banner UI once until manually dismissed, or
+(b) something in the resend cadence math (REPEAT_MS=3600ms vs. the sound
+file's real ~3.63s ring length, per session 28's own measurement) could be
+producing exactly this kind of desync under conditions not tested in
+session 28's live test. Researched further (2026-08-01): found a directly relevant, if unresolved,
+data point — a Home Assistant Companion app community thread reports
+`apns-collapse-id` (Apple's SERVER-side, APNs-level notification-merging
+header) "doesn't work for critical messages... while it works for normal
+ones." That specific mechanism is probably NOT what's in play here though:
+Bark is a relay app that constructs its OWN local notification from the
+push content client-side (matching the earlier confirmed research on
+symptom 1 — Bark runs custom code on receipt), which more likely uses
+`UNNotificationRequest`'s identifier-based replacement (a DEVICE-side
+mechanism, already verified working for this project's actual `id` field
+on 2026-07-26 per session 28's log) rather than the APNs-level
+`apns-collapse-id` header — so the "doesn't work for critical" caveat may
+not directly apply. Still couldn't find a definitive answer on whether a
+device-level identifier-matched replacement re-presents a fresh banner
+animation every time or just silently updates the existing entry while the
+critical alert's sound plays regardless (sound and visual re-presentation
+appear to be handled by separate iOS subsystems, per multiple hints across
+several forum threads, none of them conclusive). Genuinely underdocumented
+even in Apple's own developer community.
+
+**Further research (2026-08-01): found direct, strongly corroborating
+evidence on Bark's OWN issue tracker.** `Finb/Bark#256` ("重要警告与重复播放的
+执行有点问题" — "critical alert + repeat playback has some execution
+issues"): a user reported that with repeated/looping critical-style
+alerting, "it actually only rings once, then only vibrates afterward, and
+after multiple repeated runs, even the vibration may disappear." Bark's own
+maintainer (Finb) confirmed this as a real, known limitation and said he'd
+"improve the implementation logic" for combining critical alerts with
+repeat playback. That report is about Bark's OLD `call=1` mechanism
+specifically (not the same code path this project uses — session 28
+replaced `call=1` with external same-id resends specifically because of
+its own problems), but the OUTCOME described — components (sound,
+vibration, and by extension plausibly the visual banner) unpredictably
+dropping out of sync or disappearing across repeated alert cycles — matches
+this project's live report closely enough to be strong corroborating
+evidence that iOS itself is unreliable at sustaining ALL components of a
+repeated/looping alert together over many cycles, independent of which
+specific looping mechanism is used. This is now a genuinely sourced,
+multi-report pattern, not a one-off. **Conclusion: very likely a real iOS
+platform limitation, not something to keep chasing in this app's payload —
+same category as symptom 1.** Also directly confirmed, from the Bark
+maintainer himself (`Finb/Bark#285`): "Tapping a push notification will
+always open the app" — no parameter prevents Bark's own app from being the
+thing iOS launches on tap, reinforcing symptom 1's conclusion with a
+primary-source quote rather than just inference.
+
+**iOS — sometimes BOTH Bark AND the call screen open at once (unlocked, app
+in foreground) — NOT yet investigated in code, but likely explained by
+existing known timing margins.** When the app is already foregrounded, the
+live Stream WebSocket should deliver `call.ring` directly and
+`IncomingCallScreen` should mount and start heartbeating well within
+`RING_HOLD_MS` (1200ms, the window the backend holds the Bark push before
+firing it absent heartbeat evidence — see `calendar_backend.py`). This
+symptom being intermittent rather than constant is consistent with that
+1200ms margin sometimes not being enough even in the "easy" foregrounded
+case — the round trip is WS-ring-event → React render → effect →
+first heartbeat HTTP POST landing at the backend, which the existing
+`RING_HOLD_MS` comment estimates at 101-120ms warm but doesn't budget for
+render/effect latency on top. **Built and deployed as an experiment** (`e2f1b72` on `yap-family-home`,
+Fly deploy confirmed healthy): `RING_HOLD_MS` bumped 1200→1800ms for more
+margin — low risk (only delays how long a GENUINELY unanswered call takes
+before Bark fires, by 600ms), easy one-line revert, but UNVERIFIED whether
+it actually fixes this without a live test. Also affects the locked-phone
+ring timing slightly (600ms later first ring for every call) — watch for
+that being noticeable if retested.
+
+**Android — the ~10s-later reappearing call, now confirmed session-blocking
+(force-stop required, not just "decline it and move on") — investigated
+deeply, one strong lead, NOT fully resolved.** Read a live debug-strip
+screenshot the user sent mid-investigation. Two hard facts from it:
+
+1. The debug strip's own call numbering (`callTrace.js`'s `callSeq`, keyed
+   by CID, one line per DISTINCT cid ever seen this process) showed only
+   `#1 call seen by=family-hub` — no `#2` — even though the user says this
+   was captured after the screen had already come back a second time.
+2. TWO DIFFERENT truncated cids appeared in `pending cid ... not in ringing
+   calls on resume — clearing cover` lines (`...028544` and `...069613`).
+   `pendingCid` here comes straight from the FCM push's own `call_cid` field
+   (`index.js`'s `markCallPending(message.data?.call_cid)`), not from any
+   locally-generated value — so these really are two distinct `call_cid`s
+   the phone was told about by FCM, ~4 seconds apart around when the first
+   call was marked missed.
+
+That is genuinely surprising: it means either (a) the kiosk placed a second,
+genuinely separate Stream call shortly after the first ended, or (b) FCM/the
+push pipeline redelivered a stale message with different bookkeeping that
+LOOKS like a different cid. Checked the kiosk's own call-placing code
+(`App.jsx`'s `activeCall` state, `VideoCallOverlay.jsx`) for anything that
+could cause an accidental second `startCall()` — found no retry/debounce
+issue, the button handlers are plain and the effect is cleanly keyed on
+`person`. **Confirmed by the user (2026-08-01): no further button presses on the
+kiosk.** The screen came back on its own, ruling out a manual second call.
+
+**Second new lead, checked and fixed regardless of confirmation
+(2026-08-01, `7083d49`):** GetStream's own docs confirm `call.ring` and
+`call.missed` are independently configurable push events on Stream's
+dashboard. `index.js`'s `markCallPending(cid)` was firing unconditionally
+for ANY Stream video FCM message (`isFirebaseStreamVideoMessage` only
+checks `data.sender === 'stream.video'`, not the event type), while
+`firebaseDataHandler` right next to it only does anything for
+`type === 'call.ring'` internally — a real mismatch. If `call.missed`
+pushes are also enabled on Stream's dashboard (unchecked — no dashboard
+access this session), a `call.missed` push for the just-ended call would
+carry its own cid and, unfiltered, re-raise the pending-call cover. Fixed
+by gating `markCallPending` on `message.data?.type === 'call.ring'` to
+match `firebaseDataHandler`'s own contract — correct regardless of whether
+it's THE explanation for this specific mystery.
+
+**Third lead, checked and ruled out: `yap-family-home/src/main.jsx`
+wraps the app in `<React.StrictMode>`.** In a React DEVELOPMENT build,
+StrictMode deliberately double-invokes mount effects (mount → cleanup →
+mount again) specifically to surface exactly this class of bug — and
+`VideoCallOverlay.jsx`'s call-placing effect is keyed on mount, calling
+`startCall()` (which generates a brand-new `callId` from `Date.now()` every
+invocation). A double-invoke would create two genuinely separate calls, the
+first torn down almost immediately (which is consistent with a call being
+marked "missed" within seconds — exactly what the debug strip showed) and
+the second being the one that actually rings through — which would fully
+explain two distinct `call_cid`s with zero additional button presses.
+**RULED OUT (2026-08-01): checked directly on the Beelink itself.** The
+`Yap-Kiosk-Edge` scheduled task (confirmed via `Get-ScheduledTask` /
+`Get-ScheduledTask -TaskName "Yap-Kiosk-Edge" | ... .Actions`) launches:
+`msedge.exe --start-fullscreen --app="https://yap-family-home.vercel.app"
+--no-first-run --no-restore-session-state --profile-directory="Default"` —
+genuinely the production Vercel URL, and `--no-restore-session-state` means
+even a leftover dev tab from earlier debugging wouldn't survive a relaunch.
+**StrictMode's double-invoke is not the explanation. The "two distinct
+call_cid" mystery is open again.** Two threads worth pulling if picked back
+up: (a) does Stream's own Video API resend/retry the `call.ring` FCM push
+server-side for an unanswered call — analogous to `calendar_backend.py`'s
+own Bark-resend logic, but on Stream's infrastructure, entirely outside
+this repo — not yet checked; (b) the debug strip's OWN `00:36` pending-cid
+clear happened just 4s after the client finished connecting, before call #1
+was even seen at `01:09` — worth checking whether that was a leftover/
+backlogged push from BEFORE this app process started, unrelated to the
+actual call under test, which would mean only two cids (not three) are
+really part of the same story. Neither pursued further this round —
+deprioritized in favor of the foreground-duplicate and iOS banner-desync
+research asked for by name.
+
+Separately, read the actual SDK source (`@stream-io/video-react-native-sdk`,
+`packages/react-native-sdk/src/utils/push/android.ts`'s `firebaseDataHandler`,
+fetched from `GetStream/stream-video-js` on GitHub, not guessed) to
+understand what happens when a `call.ring` FCM message arrives. Confirmed:
+it calls `shouldCallBeClosed(callFromPush, data)` and, if true, calls
+`callingx.endCallWithReason(...)` AND `callFromPush.leave({reject: false})`
+— i.e. the SDK's own native call UI layer has its own leave/reject path,
+separate from anything in this app's JS. No explicit de-duplication guard
+against the SAME handler running twice for the same cid was found in this
+function (only listener-accumulation is guarded via
+`pushUnsubscriptionCallbacks`). This is SDK-internal behavior, not something
+to patch in this repo — but it does mean the "why does the call UI
+reappear" answer may live partly in `@stream-io/react-native-callingx`'s
+native (Kotlin) side, which is not readable without cloning that package
+separately (not done this session — time-boxed to the JS/TS layer that's
+actually readable from here).
+
+**Also relevant and NOT yet acted on: `App.js`'s AppState-vs-deep-link
+resume race (fixed for iOS, see status table) is NOT platform-gated code —
+the same buggy teardown-and-reconnect logic runs on Android too.** The
+debug-strip screenshot's own later lines showed it firing: `05:03.892
+resume: reconnecting after 51s bg` following a WS failure
+(`connection:WS failed with code: 1006... Software caused connection
+abort`). Whether this reconnect churn is a contributing cause of the
+reappearing-call loop (by adding delay/instability right as a redundant
+push arrives) or just an unrelated normal reconnect is unconfirmed. **The
+fix for it already exists in the same commit as the iOS fix (`8cfe3ef`) —
+it would take effect on Android automatically from the same codebase, but
+per standing rule 6 ("do NOT dispatch an Android build"), no Android build
+has been made. This needs an explicit decision from the user, not an
+assumption either way.**
+
+**Android — banner AND full-screen both show at once (unlocked, app in
+foreground) — investigated via SDK source, one solid lead, not built.**
+Read `internal/utils.ts` from the same `GetStream/stream-video-js` repo:
+`canListenToWS = () => canAddPushWSSubscriptionsRef.current &&
+AppState.currentState !== 'active'`, and `firebaseDataHandler` only
+registers its native call-UI/foreground-service path when `canListenToWS()`
+is true — i.e. **the SDK deliberately does NOT show its own native call UI
+when the app is foregrounded.** So the extra "banner" the user sees is
+almost certainly NOT this SDK mechanism firing twice — it's much more
+likely plain Android platform behavior for `setFullScreenIntent()`
+notifications: Android tends to degrade a full-screen-intent notification
+to a heads-up banner instead of force-launching over an app that's already
+in the foreground (well-established Android behavior, not specific to this
+SDK), while this app's OWN JS layer (`useCalls()` picking up the live
+WebSocket ring) independently renders its own full-screen `IncomingCallScreen`
+at the same time — two separate, individually-correct code paths producing
+a redundant pair of UIs specifically in the one state (foregrounded) where
+Android's OS-level heuristic changes its mind about auto-launching.
+**FIXED (2026-08-01, `e767bc0`), and confirmed with real citations, not
+guessed:** Android's own official docs, verbatim: "While the user is using
+the device, the system UI might display a heads-up notification instead of
+launching your full-screen intent." That's the mechanism, confirmed.
+Better still — the SDK itself has a documented option for exactly this
+case: `push.android.skipIncomingPushInForeground` — *"incoming call push
+notifications (call.ring) will not be displayed as a notification when the
+app is in the foreground."* Checked it's wired through end-to-end in the
+SDK's own source (`libs/callingx.ts` passes it straight to native
+`setupAndroid()`), not a dead/unused type. Added to `index.js`'s
+`setPushConfig` call. Low-risk even if the exact installed SDK version
+predates this option — an unrecognized JS object key is silently ignored,
+not an error. Rolled into the Android build. **NOT yet tested live.**
+
 ### Honesty check on "fixed" claims below
 
 Session 28's own write-up (further down this file) calls several things
@@ -289,9 +651,43 @@ rule below before suggesting any settings screen.
    observed race where the phone's own background-decline attempt
    (`processCallFromPushInBackground` inside the SDK) failed with a Stream
    error because the kiosk had already ended the call server-side moments
-   earlier.
+   earlier. **Session 29 update: confirmed this REPEATS (not a one-off) and
+   that declining/ending the reappeared screen does NOT reliably stop it —
+   force-stopping the whole app is what's needed, confirmed by the user. Also
+   confirmed NOT caused by a second manual button press on the kiosk — the
+   user explicitly ruled that out.** Read the actual SDK source
+   (`@stream-io/video-react-native-sdk`'s `firebaseDataHandler`,
+   `packages/react-native-sdk/src/utils/push/android.ts` and
+   `internal/utils.ts` on `GetStream/stream-video-js`, fetched from GitHub,
+   not guessed): confirmed the JS layer's `firebaseDataHandler` has no
+   explicit de-duplication against being invoked twice for the same
+   `call_cid`, but a debug-strip screenshot showed TWO GENUINELY DIFFERENT
+   truncated `call_cid`s arriving ~4s apart with no second button press —
+   meaning something created (or FCM delivered a ring for) a second,
+   distinct Stream call, not just a duplicate delivery of the same one. Live
+   suspicion, unconfirmed: the kiosk's `main.jsx` wraps the app in
+   `<React.StrictMode>`, which double-invokes mount effects in a DEV React
+   build (would create exactly two distinct calls with zero extra button
+   presses) — but this project's own notes say the kiosk runs a PRODUCTION
+   Vercel build, where StrictMode's double-invoke should not fire. Whether
+   the physical kiosk browser might be pointed at a dev server instead is
+   unconfirmed and worth asking about directly rather than researching
+   further.
+3. **NEW, session 29: when the app is in the foreground, BOTH a banner AND
+   the full-screen call UI show at once (should be just full-screen).**
+   Read the SDK source for this too: `canListenToWS()` (`internal/utils.ts`)
+   gates the SDK's native-call-UI registration on `AppState.currentState !==
+   'active'` — i.e. the SDK deliberately does NOT show its own native call
+   UI when the app is foregrounded. So the extra banner is likely NOT this
+   SDK mechanism double-firing; it's more likely plain Android platform
+   behavior for `setFullScreenIntent()` notifications degrading to a
+   heads-up banner instead of auto-launching full-screen when the target
+   app is already in the foreground, while this app's own JS layer
+   independently renders its own full-screen ring screen via the live
+   WebSocket — two individually-correct paths colliding specifically in
+   this one state.
 
-Both need real investigation, not another guess. No `adb`/`logcat` on this
+All three need real investigation, not another guess. No `adb`/`logcat` on this
 phone — it's deliberately disabled (banking apps flag root/adb detection),
 so any diagnosis path has to work without it. A ready-to-use research
 prompt (for Gemini or similar), written specifically for an Oppo Find N5
@@ -321,6 +717,18 @@ question from scratch:
 >   while in background" is ON, "Turn screen on" doesn't list this app as an
 >   option (unclear if relevant).
 > - No `adb`/`logcat` access on this device (deliberately disabled).
+> - The SDK exposes `push.android.skipIncomingPushInForeground` — a
+>   documented option to suppress the SDK's own `call.ring` notification
+>   entirely while the app is foregrounded. **Already tried and reverted**:
+>   setting it to `true` DID stop the duplicate banner, but broke two other
+>   things in the exact same scenario — the ringtone sound disappeared
+>   entirely (Android plays the ring FROM the notification channel itself,
+>   which this flag suppresses), and `Accept` sometimes did nothing at all
+>   (see symptom 4 below — turned out to leave the JS layer stuck showing a
+>   pre-call placeholder with no real joinable call object behind it). Don't
+>   suggest re-enabling this flag as a solution; the question that matters
+>   now is WHY suppressing that one notification also breaks ring audio and
+>   call registration, since those look like they shouldn't be coupled.
 >
 > **Symptom 1 — full-screen call UI works locked, only a banner shows
 > unlocked+backgrounded.** A properly registered self-managed
@@ -329,18 +737,74 @@ question from scratch:
 > either not happening, or not being honored with full call treatment, on
 > this device specifically while unlocked.
 >
-> **Symptom 2 — the call screen/notification can reappear ~10s after it
-> already closed, with zero corresponding app-level log lines.** Sequence:
-> call ends from the caller's side, the app's own JS-level logic correctly
-> detects this and cleans up (verified via in-app debug logging), the
-> screen closes, then reopens ~10s later with no new app-level logs in
-> between — pointing to a native Telecom registration still alive below the
-> JS layer. One observed possible cause: the phone's own background-decline
-> handler (`processCallFromPushInBackground` inside the SDK) independently
-> tried to reject the call a moment after the caller had already ended it
-> server-side, and that redundant reject failed with an error — suspicion
-> is that failure may leave the native registration un-torn-down, unconfirmed
-> without logcat.
+> **Symptom 2 — the call screen/notification can reappear ~10-20s after it
+> already closed, with zero corresponding app-level log lines, and REPEATS —
+> confirmed multiple times in one continuous debug-strip log, and confirmed
+> that declining/ending the reappeared screen does NOT reliably stop it;
+> force-stopping the whole app is what actually works.** Sequence observed
+> directly (not inferred): call `#3` genuinely joined and ended normally;
+> ~15s later call `#4` appeared with no user action, was itself torn down
+> within 4s (never actually shown/accepted — like a phantom ring); ~19s
+> after that, call `#5` appeared, and this one got STUCK on screen. One
+> observed possible cause for the reappearance itself: the phone's own
+> background-decline handler (`processCallFromPushInBackground` inside the
+> SDK) independently tried to reject a call a moment after the caller had
+> already ended it server-side, and that redundant reject failed with an
+> error — suspicion is that failure may leave the native registration
+> un-torn-down, unconfirmed without logcat. Confirmed NOT caused by a second
+> manual call button press on the calling side. **New angle, session 29:**
+> checked `firebaseDataHandler`'s JS source directly (GetStream's own repo)
+> — it has no de-duplication against being invoked twice for the same
+> `call_cid`, but more importantly, a debug-strip screenshot showed TWO
+> GENUINELY DIFFERENT truncated `call_cid` values arriving ~4s apart, meaning
+> this is not just a duplicate delivery of one ring — something is
+> generating (or delivering a ring push for) a second, distinct Stream call
+> object. Also worth checking outside this SDK entirely: GetStream's own
+> Video API docs say `call.ring` and `call.missed` push notifications are
+> independently configurable on Stream's dashboard — if `call.missed` is
+> ALSO enabled, a missed-call push for the just-ended call could plausibly
+> be misread by this app's own JS as a new incoming ring (this app's own
+> handling of that has since been tightened to only react to
+> `type === 'call.ring'`, but the dashboard-level "is call.missed even
+> configured to push" question is still open and this session had no way to
+> check the Stream dashboard directly).
+>
+> **Symptom 3 — when the app is in the foreground (unlocked, actively being
+> used), BOTH a heads-up banner AND the app's own full-screen incoming-call
+> UI show at the same time; only the full-screen UI should show.** Checked
+> the SDK's own JS source: its native call-UI registration is explicitly
+> gated on `AppState.currentState !== 'active'` (i.e. it deliberately does
+> nothing when foregrounded), so this is NOT the SDK's own call UI
+> double-firing. Current best-supported explanation, backed by Android's own
+> official docs (verbatim: "While the user is using the device, the system
+> UI might display a heads-up notification instead of launching your
+> full-screen intent"): Android itself degrades the SDK's
+> `setFullScreenIntent()` notification to a heads-up banner because the
+> target app is already foregrounded, while this app's own JS layer
+> independently renders its own full-screen ring screen via the live
+> WebSocket — two individually-correct paths colliding in this one state.
+> The obvious SDK-level fix (`skipIncomingPushInForeground`, see above) was
+> tried and reverted because it broke ring sound and call joining — so this
+> needs a fix that removes ONLY the redundant visual banner without
+> suppressing the notification (and whatever native call-registration side
+> effects come with it) altogether.
+>
+> **Symptom 4 (NEW) — Accept sometimes spins for ~20 seconds doing nothing,
+> then stops, and a SECOND press connects successfully.** One debug-strip
+> screenshot shows a call seen at `T`, then 11 seconds later a reconciliation
+> check logs `pending cid ... not in ringing calls on resume — clearing
+> cover` — concluding the call ISN'T ringing anymore — even though that same
+> call joined successfully 9 seconds after THAT. So the app-level "is this
+> call still valid" check produced a false positive, clearing the pre-call
+> placeholder cover for a call that was genuinely still ringing. Only one
+> real `accept: joining` log line appears in the strip (right before the
+> successful join), so there's no direct proof of a first failed join
+> attempt — the leading theory is that the user's first tap lands on a
+> stale/cleared placeholder state and does nothing, and the SECOND tap is
+> the one that actually reaches a real, working call object. Not deeply
+> investigated this session — flagging as likely related to symptom 2's
+> "stuck on a placeholder with no real call behind it" pattern, not
+> necessarily a fully separate bug.
 >
 > **What I want:**
 > 1. What does ColorOS require beyond stock Android for a third-party
@@ -350,7 +814,7 @@ question from scratch:
 >    AOSP Telecom? Be specific about WHERE on a ColorOS 15 device (exact app
 >    name if not in stock Settings, exact menu path) — this needs to be
 >    relayed to someone already sent on two failed blind settings hunts
->    tonight, so it can't be a third guess.
+>    before, so it can't be a third guess.
 > 2. Is self-managed PhoneAccount registration known to behave differently
 >    on ColorOS regarding full-screen presentation unlocked vs. locked? Any
 >    known ColorOS bugs/changes (XDA, Oppo dev docs, GitHub issues against
@@ -364,10 +828,111 @@ question from scratch:
 > 4. Realistically: how much of this is "find the right ColorOS toggle" vs.
 >    "needs proper native Android development"? Want an honest read on
 >    whether this is a configuration gap or an SDK/app integration gap.
+> 5. For symptom 3: given `skipIncomingPushInForeground` is out (broke sound
+>    + join), is there a documented, correct way for the app to detect "I am
+>    already showing this call myself" and cancel/dismiss JUST the visual
+>    banner presentation of the underlying system notification — without
+>    cancelling the notification object itself, which seems to be what's
+>    also carrying the ring sound and/or native call registration? A
+>    specific `NotificationManager` call, a `react-native-callingx` API that
+>    isn't being used, or is this simply not separable on stock
+>    Android/ColorOS?
+> 6. For symptom 4: is there a known race in the SDK (or in how apps
+>    typically use `queryCalls`/ringing-state reconciliation) where checking
+>    "is this call still ringing" shortly after a call starts can produce a
+>    false negative for a call that's genuinely still ringing? If so what's
+>    the documented-correct way to avoid it (e.g. a minimum age before
+>    trusting a negative reconciliation result, or a different API to check
+>    against)?
+> 7. Independent of the SDK/ColorOS: is there anything in GetStream's own
+>    Video API server-side behavior (ring timeout, retry, or `call.missed`
+>    push delivery) that could cause a SECOND, genuinely distinct
+>    `call.ring` push to be sent for what was really just one call attempt?
+>    Docs confirm `call.ring` and `call.missed` push notifications are
+>    independently configurable — if this project's Stream dashboard has
+>    `call.missed` pushes enabled too, could that explain symptom 2's "two
+>    distinct call_cid" observation, given this app's own `call.ring`-type
+>    filtering was only added this session and wasn't in place during the
+>    test that produced that evidence?
 >
 > Be direct about documented/verifiable vs. speculative — this project has
 > already been burned once by a plausible-sounding wrong assumption that
 > cost real debugging time before a live device test disproved it.
+
+### Gemini's answer to the prompt above (2026-08-01) — concrete, not run against yet
+
+Run in parallel with the corrected Android build. Read carefully before the
+next session touches Android code — this replaces guessing with four
+specific, actionable fixes. **None of these are implemented or tested yet.**
+
+**Symptom 1 (full-screen vs. banner unlocked) — CLOSED, working as
+designed.** Gemini's direct answer: "You are chasing a non-existent OS
+behavior... this is not a ColorOS restriction, a missing permission, or an
+OEM bug. It is working exactly as designed by Android. There is no toggle
+to find." A self-managed ConnectionService call is NOT supposed to hijack
+the screen while the device is unlocked and in active use — even the
+native system dialer behaves this way. **Stop treating this as a bug.**
+Remove it from the "open issues" framing; if it's tracked at all, track it
+as "confirmed intentional Android behavior," not a defect.
+
+**Symptom 2 (reappearing calls, multiple call_cids) — confirmed the
+`call.missed`-dashboard-push theory, AND gives a concrete native-teardown
+fix.** Gemini: "Your suspicion is correct... if your app previously passed
+native push payloads to the SDK without strictly checking for
+`type === 'call.ring'`, the SDK would interpret the missed-call push as a
+new incoming call trigger" — validates this session's `index.js` fix
+(`7083d49`) restricting `markCallPending` to `call.ring` only; that fix
+should already help. Separately, a genuine gap: when the background reject
+handler's API call fails (call already ended server-side, exactly the
+Stream-error-103 class of failure seen on iOS), Android's native
+`Connection` object needs `setDisconnected()` + `destroy()` called on it to
+actually leave Telecom's system UI — **if the JS-level `reject()`/`leave()`
+promise throws and halts execution before reaching native teardown, the
+Connection stays alive as a phantom call in `TelecomManager`.** This is the
+Android-side mirror of the exact iOS bug already fixed this session
+(`e88b9a2` — `decline()`'s catch block now force-calls `call.leave()`
+instead of just clearing the busy spinner). **Concrete next step:** find
+Android's equivalent reject/decline failure path (likely in
+`processCallFromPushInBackground` or wherever this app's own Android
+decline flow lives) and apply the same pattern — wrap in try/catch, and on
+API failure, explicitly force a local teardown so the native module tears
+down the Telecom connection regardless of what the server says.
+
+**Symptom 3 (double-UI collision, foreground) — architecture correction:
+suppress the JS UI, not the native banner.** Gemini: "You cannot cleanly
+separate the visual heads-up banner from the notification object that
+carries your ringtone and Telecom registration. They are the same entity"
+— confirms why `skipIncomingPushInForeground` broke sound+join: it wasn't
+just hiding a banner, it was tearing down the same object the ringtone and
+call registration depend on. **The correct pattern, per Gemini: when the
+app is foregrounded, let the native heads-up banner win, and DON'T render
+this app's own JS full-screen incoming-call UI — the opposite of the
+current design, which always renders the JS ring screen off the live
+WebSocket regardless of foreground state.** Concretely: listen for the
+native "Accept" tap event (from the banner) and transition straight into
+the active-call screen on that signal, rather than showing a competing
+full-screen ring UI at all while foregrounded. This is a real design
+change to `CallOverlay`/`IncomingCallScreen` (App.js), not a one-line fix —
+needs its own careful implementation, probably gated on
+`AppState.currentState === 'active'` to decide whether to render the ring
+screen at all.
+
+**Symptom 4 (false negative on Accept, ~20s delay) — confirmed race,
+concrete fix.** Gemini: "a standard state-reconciliation race condition...
+WebSocket updates can cause the call to momentarily drop from the SDK's
+ringing array before the join is finalized... your UI reacts to this brief
+absence by assuming the call is dead." Fix pattern given: the instant
+Accept is pressed, set a local UI lock for that `call_cid` (e.g.
+`isJoiningCall`), disable the button, and **ignore the SDK's ringing-array
+absence / any reconciliation-driven clear for that cid while the lock is
+active** — only release the lock on an explicit join rejection or a
+definitive `call.ended` event. This app already has a very similar pattern
+for iOS (`src/acceptState.js`'s `markAccepting`/`isAccepting`,
+already used to guard against a double `join()` in `IncomingCallScreen.js`)
+— the concrete next step is making the `queryCalls`-based reconciliation in
+`App.js` (both the cold-connect site and the AppState-resume site) check
+`isAccepting(cid)` before clearing the pending-call cover, the same way
+`CallOverlay`'s `incomingRingCall` filter already does.
 
 ### Standing rule — read before session 28's rules below
 
