@@ -499,8 +499,25 @@ state (2026-08-01 repro, gathered directly from the user, not guessed).
 
 #### Android — by phone state (Oppo Find N5)
 
-**Live-tested 2026-08-01 against build `7083d49` (tag shown on the debug
-strip). Results below fold in that test.**
+**Live-tested 2026-08-01 against build `837f389` (companion `29b2246a`'s
+corrections + session 30's 3 Gemini fixes). Results below fold in that
+test — supersedes the `7083d49` round further down this section, kept for
+history.**
+
+| Phone state | Symptom | Status | Plan |
+|---|---|---|---|
+| Locked | Ring sound, Accept/join not hanging (baseline regressions from `29b2246a`) | ✅ **Confirmed still good**, live-tested 2026-08-01. | None needed. |
+| Any (clean install) | Full-screen-intent permission prompt | ✅ **Confirmed fixed**, reappeared and was granted on this install. | Closed. |
+| Locked | ~10-20s after a call ends, another full-screen call appears unprompted (reappearing-call loop) | ⚠️ **Session 30's safety-net fix had a real regression, found and fixed this session (`d213cd3`) — NOT yet in a build the user has.** Live-testing surfaced the safety net force-leaving calls that were still genuinely fresh (33ms-896ms old), silently ending real calls and posting them missed — see session 31 write-up above for the debug-strip evidence and root cause. Fixed with a `STALE_LEAVE_GRACE_MS = 5000` age gate. | **Needs a new build before this can be meaningfully retested** — the currently-installed `837f389` still has the bug. Don't re-run this test on the current install; it'll just reproduce the same false-positive. |
+| Unlocked, foreground | Both banner AND full-screen call show (session 30's `suppressJsRingScreen` fix) | ⚠️ Built, session 30 — **not yet live-tested.** | Test next. |
+| Any | Accept spins ~20s, second press connects (session 30's `isAccepting` reconciliation guard) | ⚠️ Built, session 30 — **not yet live-tested.** | Test next. |
+| Any (post-connect) | Kiosk video sometimes doesn't show after connecting | ❌ Logged 2026-08-01, no repro gathered | Still needs repro details before investigating. |
+| Any (post-connect) | Phone publishes video at an accidental 720p (should be up to 2160p) | 📋 **PARKED** — shared-code issue with the iOS row above. | Dedicated future session. |
+| — | Oppo missed-call handling | ⚠️ Still no repro details gathered | **Still waiting on the user** — what actually happens vs. expected. |
+| Unlocked, app not foreground | Only a banner shows (not full screen) | ✅ **CLOSED — confirmed intentional Android behavior, not a bug** (session 29, Gemini/AOSP citation). | None — expected behavior. |
+
+<details>
+<summary>Earlier round (build `7083d49`, session 29) — superseded, kept for history</summary>
 
 | Phone state | Symptom | Status | Plan |
 |---|---|---|---|
@@ -516,6 +533,8 @@ strip). Results below fold in that test.**
 | Any (post-connect) | Kiosk video sometimes doesn't show after the call connects | ❌ NEW 2026-08-01, logged per user request, not investigated | **Needs a repro before anything else** — how often does it happen, does it correlate with anything (cold vs. warm start, foreground vs. background accept, etc)? Not investigating further until there's something concrete to go on, per this project's own standing rule. |
 | Any (post-connect) | Phone publishes video at an accidental 720p (should be up to 2160p) | 📋 **PARKED, not touched this session** — same shared-code issue as the iOS row above, see there for the full write-up. Applies identically to Android. | **Dedicated future session**, same plan as the iOS row — one code change, shared between platforms. |
 | — | Oppo missed-call handling | ⚠️ Still no repro details gathered — deferred by user, get this before touching missed-call code specifically | **Waiting on the user** — ask what actually happens vs. expected on a missed call, same as was done for iOS earlier this session. Not guessing at this from the table alone. |
+
+</details>
 
 **Reappearing call loop — re-examined against the live debug-strip
 screenshot from this test (2026-08-01), and NOT actually fixed, contrary
