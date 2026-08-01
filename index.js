@@ -113,7 +113,24 @@ if (Platform.OS === 'android') {
       // The cid comes along for the ride: it is what lets the cover show working
       // Accept/Decline buttons during the connect instead of a spinner (see
       // src/callIntent.js).
-      markCallPending(message.data?.call_cid);
+      //
+      // Session 29: gated on type === 'call.ring', matching firebaseDataHandler's
+      // OWN internal check one line below (it does nothing for any other type).
+      // This used to fire unconditionally for ANY Stream video FCM message —
+      // isFirebaseStreamVideoMessage() only checks data.sender === 'stream.video',
+      // not the event type. Stream's dashboard can independently enable pushes for
+      // call.missed (and others) alongside call.ring (GetStream's own docs:
+      // "You can enable/disable push notifications for the call.ring and
+      // call.missed events" separately) — a call.missed push for a call that just
+      // ended would carry its own cid and, unfiltered, would re-raise the pending-
+      // call cover / re-trigger firebaseDataHandler for a call that is already
+      // over. Investigated as a live suspect for the ~10s-later reappearing call
+      // screen (see yap-family-companion/TODO.md) — not confirmed as THE cause,
+      // but tightening this to match firebaseDataHandler's own contract is correct
+      // regardless of whether it turns out to be it.
+      if (message.data?.type === 'call.ring') {
+        markCallPending(message.data?.call_cid);
+      }
       await firebaseDataHandler(message.data);
     }
   });
@@ -121,7 +138,9 @@ if (Platform.OS === 'android') {
   // push too so a ring is never dropped if the socket is mid-reconnect.
   messaging().onMessage(message => {
     if (isFirebaseStreamVideoMessage(message)) {
-      markCallPending(message.data?.call_cid);
+      if (message.data?.type === 'call.ring') {
+        markCallPending(message.data?.call_cid);
+      }
       firebaseDataHandler(message.data);
     }
   });
