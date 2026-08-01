@@ -63,23 +63,30 @@ if (Platform.OS === 'android') {
         title: 'Yap Family calling',
         body: 'Tap to answer',
       },
-      // Session 29: reported live — when the app is already foregrounded, BOTH
-      // a heads-up banner AND the app's own full-screen IncomingCallScreen show
-      // at once. Confirmed via the SDK's own source (react-native-callingx is
-      // NOT the source of this — its setupAndroid() explicitly gates its native
-      // call UI on the app being backgrounded already) and via Android's own
-      // official docs, verbatim: "While the user is using the device, the
-      // system UI might display a heads-up notification instead of launching
-      // your full-screen intent." So the banner is Android's own platform
-      // behavior for the SDK's notification degrading to heads-up while this
-      // app is frontmost — and this app's JS layer independently renders its
-      // own ring screen on top via the live WebSocket, producing the
-      // duplicate. This flag is the SDK's own documented fix for exactly this:
-      // "incoming call push notifications (call.ring) will not be displayed
-      // as a notification when the app is in the foreground" — the JS layer's
-      // own IncomingCallScreen remains the sole UI in that case, which is
-      // already correct on its own. Not yet tested live.
-      skipIncomingPushInForeground: true,
+      // Session 29: REVERTED after a live test. Was set to `true` to fix a
+      // reported duplicate (heads-up banner + full-screen call UI both
+      // showing when the app is foregrounded) — see git history / TODO.md
+      // for the reasoning, which was sound as far as it went. But live
+      // testing turned up THREE regressions all specific to that exact
+      // scenario (foregrounded call), strong evidence this flag caused them:
+      // (1) no ringtone sound at all — Android's ring sound is played BY the
+      // notification channel itself (this app's own IncomingCallScreen.js
+      // has a comment confirming this: "Android still plays its native
+      // incoming-call ring via the notification channel — this screen only
+      // adds a buzz"), and this flag suppresses that notification entirely
+      // in foreground, silently killing the sound along with the visual
+      // duplicate it was meant to fix; (2) Accept did nothing — the debug
+      // strip's green text (only ever absent when IncomingCallPlaceholder is
+      // showing instead of the real IncomingCallScreen — see App.js) was
+      // missing, meaning the app was stuck on the pre-call placeholder cover
+      // with no real call object behind it to accept; (3) presumably tied to
+      // the same root cause as (2). A silent, unjoinable call is a much
+      // worse failure than a redundant banner — reverting outright rather
+      // than trying to patch around it blind. If this is revisited, the
+      // right next step is understanding WHY skipping the notification also
+      // breaks call.join()/the ring-sound path, not just re-flipping this
+      // flag and hoping.
+      skipIncomingPushInForeground: false,
     },
     createStreamVideoClient: getOrCreateClient,
   });
