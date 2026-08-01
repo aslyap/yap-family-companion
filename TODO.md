@@ -44,19 +44,46 @@ up a genuinely new, more precise finding, not just "still broken":**
   no code lever identified, and this is now in the same "accepted platform
   limitation" category as symptoms 1 and the banner/ringtone desync unless
   further research turns up an actual API for it.
-- **Banner-over-call-screen (`CLEAR_BANNER_ON_SUPPRESS`) and foreground
-  duplicate (`RING_HOLD_MS` 1200→1800ms) — confirmed unchanged, no
-  improvement from either experiment.** User confirmed both look identical
-  to the pre-fix description, not a nuanced variant like the item above.
-  Both were already flagged "genuinely unverified" going in, so this is a
-  clean negative result, not a surprise. Per the original plan for both: no
-  further fix is queued from guessing — would need fresh investigation.
-  `CLEAR_BANNER_ON_SUPPRESS` is harmless even though it didn't help (passive
-  push, shouldn't itself alert) so left deployed rather than reverted:
-  reverting it gains nothing now that the swipe-reveal finding above
-  suggests the live-refresh limitation is the same one it was trying to work
-  around, i.e. it was very likely never going to be able to fix a category of
-  problem that isn't really a stale-payload problem.
+- **Banner-over-call-screen (`CLEAR_BANNER_ON_SUPPRESS`) — confirmed
+  unchanged.** User confirmed it looks identical to the pre-fix description.
+  Consistent with the swipe-reveal finding above: this experiment relies on
+  the exact same same-id-push-updates-an-on-screen-banner mechanism that
+  symptom 3's fix does, so if that mechanism doesn't live-refresh a
+  displayed banner, this was never going to be able to fix a category of
+  problem that isn't really a stale-payload problem. `CLEAR_BANNER_ON_SUPPRESS`
+  is harmless even though it didn't help (passive push, shouldn't itself
+  alert) so left deployed rather than reverted.
+- **Foreground duplicate (`RING_HOLD_MS` 1200→1800ms) — confirmed unchanged,
+  and this time actually diagnosed from real evidence, not left as "would
+  need fresh investigation."** Pulled the Fly backend's own logs
+  (`flyctl logs --no-tail`, 2026-08-01) covering the exact test calls the
+  user just ran and read the hold/suppress/fire timeline per call directly:
+  ```
+  789378: holding push for 1800ms  →  suppressed 3s later                    (fine)
+  809969: holding push for 1800ms  →  REAL ring fired 14s later, heartbeat
+          only landed AFTER that                                            (bug)
+  865866: holding push for 1800ms  →  REAL ring fired 6s later, heartbeat
+          landed 1s after that                                              (bug)
+  ```
+  Two of three timed calls show the actual (non-experimental) Bark ring push
+  firing because the phone's heartbeat took **6–14 seconds** to reach the
+  backend — not a tight-margin problem a 600ms bump could ever close; the
+  600ms is noise next to a multi-second gap. The heartbeat itself is a plain
+  HTTP POST (`ringHeartbeat.js`), so a multi-second delay in it landing means
+  something upstream of that POST is slow — most likely `App.js`'s own
+  resume/reconnect logic: when the app has been backgrounded >30s with no
+  held calls, `StreamWrapper` tears down and fully rebuilds the Stream
+  client (new token fetch + `connectUser()` + WS reconnect) before
+  `IncomingCallScreen` can even mount and start heartbeating. Between this
+  session's rapid-fire test calls the phone plausibly idled/backgrounded
+  just long enough to trigger that path on the next one, explaining why some
+  calls suppressed in ~3s and others took 6–14s. **Not confirmed** — there's
+  no adb/Mac to pull the client-side debug strip remotely, so this is a
+  concrete, code-grounded hypothesis, not a guess from nothing, but it needs
+  a debug-strip screenshot from an actual slow instance (watch for a
+  `resume: reconnecting after Xs bg` line right before the affected call) to
+  confirm before writing any fix. **Next step, not done yet:** get that
+  screenshot on the next foreground-duplicate occurrence.
 
 **Gemini's 4 Android answers, 3 implemented in `App.js` this session (NOT
 built or tested yet — no Android build dispatched for these changes):**
