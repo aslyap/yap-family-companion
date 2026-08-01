@@ -234,6 +234,14 @@ this session, not just the one it was first caught in — further testing on
 this build isn't reliable signal. Next: build and ship the widened fix,
 then resume Test 3/4 clean.
 
+**End of session 31: new Android build dispatched, not yet installed.**
+Companion `main` = `5e2a496` (includes the `STALE_LEAVE_GRACE_MS` fix, both
+revisions), kiosk `main` = `19ee582` (both iOS delete-push fixes, deployed
+live to Fly). Build run:
+https://github.com/aslyap/yap-family-companion/actions/runs/30699420175 —
+check it's green before installing (was still queued/running when this
+session ended). Artifact will be `yap-family-companion-apk` once complete.
+
 ## Session 30 progress — Gemini's 3 actionable Android fixes implemented (untested), iOS/Android installs handed to the user in parallel
 
 Picked up session 29's handoff exactly as written (companion `f3dc793`, kiosk
