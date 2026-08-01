@@ -1,11 +1,13 @@
 # yap-family-companion — Session Handoff
 
-## Session 29 kickoff — iOS retest + Android Telecom investigation
+## Session 29 progress — iOS root-caused + one fix built, Android still needs its repro
 
-Session 28 (2026-07-31, on the Beelink) ran long and covered a lot of ground.
-**Read this whole section before touching anything — it corrects claims made
-earlier in session 28's own log below, so don't trust "fixed" language further
-down without reading this first.**
+Picked up the kickoff below (session 28, 2026-07-31). Companion `main` was
+`912754e`, kiosk `main` was `b4e32fd`, both already up to date — no drift this
+time. **Read the rest of this session's notes before session 28's own log
+further down; two of the three iOS symptoms are now root-caused with a fix
+built (not yet deployed/tested), and the third turned out to not be fixable
+in this codebase at all.**
 
 ### Where things stand — quick status
 
@@ -13,17 +15,244 @@ down without reading this first.**
 |---|---|
 | Bark ring overrun (rang 15-20s after kiosk hangup) | ✅ Fixed, confirmed on-device, repeatedly |
 | Android placeholder-TTL stuck screen (~20s after reopening) | ✅ Fixed, confirmed on-device, repeatedly |
-| iOS heartbeat/timing fixes (session 28 build) | ❌ Installed, user reports still broken, no specifics gathered |
-| iOS missed-call handling | ⚠️ User has flagged an issue exists — no repro details captured yet |
-| Android (Oppo) missed-call handling | ⚠️ User has flagged an issue exists — no repro details captured yet. Note: the debug strip showed `missed: posted for H:MM pm` firing correctly in every session 28 test, so if there's a real problem it's likely downstream of that (what the notification actually looks like / does on tap) rather than the posting logic itself — but this is a guess, not confirmed, don't assert it |
+| iOS symptom: Bark opens to its own Messages tab before the call screen | 🔶 Reopened — confirmed to correlate with the COMPANION app's swipe state (not Bark's), which existing research doesn't explain. A related companion-app resume bug was found and fixed (`resumeCover`/AppState race, see below); untested whether it affects this. Not accepting the $99/yr-CallKit conclusion as final until that's tested. |
+| iOS symptom: Bark banner sits on top of the just-opened call screen | 🔶 Root-caused, EXPERIMENTAL fix deployed (`d44b560`, Fly v63, `CLEAR_BANNER_ON_SUPPRESS`) — genuinely unverified whether it works, one-line revert if it makes things worse. NOT tested live. See "iOS symptom 2" below. |
+| iOS symptom: kiosk-reject leaves "Yap Family calling" banner instead of "Missed call" | 🔶 Root cause confirmed, fix committed (`dbb56ca`) and deployed to Fly (v62, `/docs` returns 200) — NOT yet tested with a real call. See "iOS symptom 3" below |
+| Android (Oppo) missed-call handling | ⚠️ Still no repro details — user asked to fix iPhone first this session. **Get this before touching Android missed-call code.** |
 | Android full-screen vs. banner when unlocked | ❌ Open, native-level, research prompt below |
 | Android call screen reappearing ~10s after closing | ❌ Open, native-level, research prompt below |
 
-**First step next session: get concrete repro details for both missed-call
-reports (iPhone and Oppo) before doing anything else.** Neither has specifics
-attached yet — what exactly happens, expected vs. actual, one artifact from
-each side per the standing rules. Don't guess at a fix for either from this
-table alone.
+### iOS — three symptoms, gathered via direct Q&A (2026-08-01), not guessed from the table
+
+User's own description of the iPhone behavior, locked phone, in order of what
+they see:
+1. Sometimes, tapping the Bark notification first shows Bark's own **Messages
+   tab**, THEN the full-screen Yap Family call page. **Expected: go straight
+   to the call page, always.**
+2. Sometimes, the call page opens, but the **Bark banner sits on top of it**.
+   **Expected: the banner should dismiss itself once the call page is up.**
+3. Sometimes, rejecting the call from the **kiosk** ends the call, but the
+   **"Yap Family calling" banner stays** on the phone instead of turning into
+   "Missed call". **Expected: banner should clear/update the moment the
+   kiosk rejects.**
+
+Confirmed with the user this is **one bucket** — the same broken-ness as the
+session 28 "iOS heartbeat/timing fixes still not fixed" report, not a
+separate missed-call-specific issue. Two of the three are now explained by
+reading `calendar_backend.py`'s ring worker and `streamVideo.js` together;
+the third is outside this codebase.
+
+**Symptom 3 (banner survives a kiosk reject) — CONFIRMED race, FIXED
+(locally, untested).** `_ring_worker`'s tick decides "resend due?" under
+`_rings_lock`, appends the payload to a local `due` list, then releases the
+lock and does the actual `requests.post` to api.day.app *after*. If the kiosk
+calls `/api/ring/stop` (on reject) in the gap between a tick committing to a
+resend and that resend's HTTP call actually landing, the stale "Yap Family
+calling" resend can arrive at Bark *after* the kiosk's own
+`notifyCalleeMissed` push (same Bark `id`) — silently overwriting "Missed
+call" back to "Yap Family calling", which then never gets corrected because
+the worker has genuinely stopped by then. This matches "sometimes", not
+"always" — it's a narrow window (bounded by the worker's 100ms tick and Bark
+relay latency), not a guaranteed collision every time.
+
+Fix: `calendar_backend.py` now tracks a `pending_sends` counter per call,
+incremented in the SAME locked block as the decision to resend, decremented
+after the send completes. `/api/ring/stop` sets `stopped=True` (blocking all
+FUTURE resend decisions) and then blocks — up to 2s, generously past the
+~300-600ms measured Bark relay latency — until `pending_sends` drains to 0.
+Since no new resend can be decided once `stopped=True`, this is a real
+guarantee, not a "probably fast enough": by the time `/api/ring/stop`'s HTTP
+response reaches the kiosk, every resend this worker will EVER send for that
+call has already landed, so `notifyCalleeMissed`, sent right after, is
+guaranteed to be the last write to that Bark notification id. This also
+benefits every other caller of `stopRing`/`stopBackendRing` for free (the
+phone's own answer/decline paths), not just the kiosk-reject case.
+**Committed (`dbb56ca` on `yap-family-home` main, pushed) and deployed
+(Fly release v62, `flyctl status` shows `started`, `/docs` returns 200) — but
+NOT tested live yet.** Test: call the spare iPhone from the kiosk, let it
+ring, reject from the kiosk's red button, confirm "Missed call" shows and
+stays (not "Yap Family calling"). It's daytime SGT, not quiet hours, so this
+can be tested whenever convenient — no override needed, just do it.
+
+**Symptom 2 (banner over the just-opened call screen) — root cause
+CONFIRMED, same family of bug, fix NOT built.** This isn't the reject path —
+it races the initial tap. `IncomingCallPlaceholder` starts sending heartbeats
+the instant it mounts (essentially the instant the deep link is tapped), but
+the worker only re-checks heartbeat freshness once per 100ms tick, and a
+resend that a tick already committed to just before that first heartbeat
+registers as fresh is, like symptom 3, already unstoppable — it lands as a
+banner momentarily after the call screen has opened. The `pending_sends`
+fix above does NOT close this window: there's no `/api/ring/stop` call at
+tap-time to hang off of, and even if there were, blocking doesn't un-display
+a banner that already rendered.
+
+**Now built and deployed as an explicitly experimental, easily-reverted
+change** (`CLEAR_BANNER_ON_SUPPRESS` in `calendar_backend.py`, defaults
+`True`): the moment `_ring_worker` first sees fresh heartbeat evidence (the
+phone's own screen confirmed up), it now also fires ONE same-id push
+stripped of `level`/`sound`/`volume`/`call` (set to `passive`), trying to
+overwrite whatever stray resend might have raced the tap. This is cheap —
+the worker already holds the full payload in `r["payload"]` — but genuinely
+**unverified**, not "probably fine": checked whether a same-id replacement
+with a quieter level actually updates an on-screen critical-alert banner's
+visible content vs. only updating Notification Center once the original is
+manually dismissed — session 28's Gemini research already flagged this
+exact class of question as iOS-version/timing-dependent, and a fresh check
+of Apple's own Developer Forums (2026-08-01) found the identical question
+asked outright with **zero replies, no Apple engineer answer** — this is
+genuinely open even to Apple's own developer community, not just under-
+documented.
+
+**Because it's unverified, treat this literally as an experiment, not a
+fix**: worst case if the hypothesis is wrong is one extra low-key push per
+call that (per `passive`'s documented behavior) shouldn't alert or show a
+banner on its own — but that's exactly the part that's unconfirmed, so
+watch for it introducing a NEW artifact, not just failing to fix the old
+one. `CLEAR_BANNER_ON_SUPPRESS = False` fully reverts without touching the
+surrounding logic if it makes things worse. **Needs a real call test**
+before trusting it either way.
+
+**Symptom 1 (Bark's own Messages tab shows first) — REOPENED. Gemini's
+Bark-source research below is still good background, but it does NOT
+fully explain the live report and should not be treated as the final
+word — see the new data point further down this section (correlates with
+the COMPANION app's swipe state, which this research doesn't touch at
+all).** Root cause per that research:
+Bark's `didReceive response:` delegate calls `UIApplication.shared.open(url)`
+itself — iOS has to launch Bark's own process to run that code at all. Warm
+launch (Bark already in memory): near-instant, `open(url:)` fires before
+Bark's UI finishes painting, no visible flash. Cold launch (Bark evicted,
+plausible on an idle spare phone): iOS renders Bark's root tab (Messages
+history) while initializing its process, THEN `didReceive` runs and hands
+off — the 200-500ms flash is genuinely unavoidable app-switching overhead,
+not a Bark bug. Confirmed NOT related to `level:'critical'` — Gemini's read
+is that critical vs. active/time-sensitive notifications go through the
+identical tap-handling path, no special acknowledgment requirement inside
+Bark's UI. Confirmed no Bark app-level setting exists for this either.
+Maintainer position on related Finb/Bark issues (#174, #305, #401): a
+relayed notification cannot delegate its OS-level tap target to another
+app — Bark's binary is what iOS launches, full stop.
+
+**IF this research turns out to be the whole story, the only real fix is
+architectural: PushKit VoIP push + CallKit in the companion app itself**,
+which needs a paid Apple Developer account ($99/yr — project is currently on
+a free cert via SideStore; `streamVideo.js` already noted this constraint).
+The user was previously asked whether to pursue that and said no, given the
+prior framing (intermittent, cold-launch-only) — **that framing is now in
+question given the swipe-state correlation below, so don't re-raise the
+$99/yr question again until the resume-race fix has actually been tested
+and either does or doesn't change symptom 1.**
+
+Further checked (2026-08-01) whether Bark's cold-launch frequency itself
+could be reduced without CallKit — genuinely a dead end, not a guess:
+Background App Refresh does NOT affect push notification handling at all
+(confirmed via Apple's own community threads — "Apps that refresh because
+they received a notification... are not controlled by background app
+refresh settings"), so there is no setting, for Bark or otherwise, that
+reduces how often iOS evicts its process between calls. iOS process eviction
+itself has no public user-facing control (memory-pressure-driven, OS
+internal).
+
+**New data point, same session, changes the picture: live-tested by the
+user swiping away (force-quitting) the COMPANION app specifically — Bark's
+own state was not deliberately touched. Result: companion app swiped away →
+no symptom 1. Companion app left running (just backgrounded, phone locked)
+→ symptom 1 happens.** This is genuinely surprising and NOT fully explained
+by anything above — Bark and the companion app are separate processes;
+there's no direct code-level reason the companion app's swipe state should
+control whether BARK's own UI flashes. Do not treat this as solved.
+
+What WAS found while chasing this: reading `App.js`'s own resume handler
+turned up a real, separate bug — an `AppState` "active" event and the
+`Linking` "url" deep-link event race each other when the companion app
+resumes from being merely backgrounded (not force-quit). If the AppState
+event wins, the app wrongly concludes this is a stale, non-call resume and
+tears down and rebuilds its entire Stream client connection — real,
+measurable work on the phone's JS thread, mid-ring. Fixed (see below,
+`resumeCover` / the 250ms grace window in the AppState listener).
+
+**Speculative, not confirmed: this MIGHT be part of why swiping the
+companion app away changes symptom 1's visibility** — even though it can't
+touch Bark's own code, a companion app busy tearing down and rebuilding its
+network client at the exact moment Bark is trying to hand off to it via
+`openURL` could plausibly slow down how quickly the companion app actually
+takes over the foreground, stretching out how long Bark's own transitional
+screen stays visible. This is a hypothesis to test, not a claim to trust —
+it does not fully explain the report either, since Bark showing ANY of its
+own UI at all still requires Bark's tap-handling code to run first,
+regardless of how fast the companion app subsequently takes over. **Next
+step: build with the AppState race fix, retest the exact swiped/not-swiped
+comparison, see if it changes.**
+
+Original research prompt (for reference — already answered above, don't
+re-run unless the situation changes):
+
+> I'm using Bark (Finb/Bark, the open-source iOS push-notification relay app,
+> https://github.com/Finb/Bark) to deliver incoming-call alerts for a home
+> video-calling app. The push carries a `url` field
+> (`yapfamily://call?cid=...`) meant to deep-link straight into my own app the
+> instant the notification is tapped.
+>
+> **The problem:** tapping the delivered Bark notification sometimes opens
+> Bark's OWN app first — landing on its Messages/history tab — and only THEN,
+> a moment later, hands off to my app's `url`. Sometimes it goes straight to
+> my app with no Bark UI visible at all. I want to know whether this is
+> avoidable, not just why it happens.
+>
+> **Already confirmed, don't re-derive:**
+> - The push payload already sets `url` correctly and does NOT set `action`
+>   (Bark's docs: `action` only shows a popup when explicitly set to `'alert'`,
+>   which this payload never does).
+> - Checked Bark's full documented payload parameter list (title, subtitle,
+>   body, markdown, device_key, device_keys, level, volume, badge, call,
+>   autoCopy, copy, sound, icon, image, group, ciphertext, isArchive, ttl,
+>   url, action, id, delete) — none of them are documented as controlling
+>   whether a tap shows Bark's own UI before following `url`.
+> - The push always uses `level: 'critical'` (a Critical Alert, to bypass
+>   silent mode / Focus) — this field is a live suspect, not ruled out: I
+>   have NOT confirmed whether critical alerts specifically are handled
+>   differently on tap than ordinary/active-level notifications.
+> - No `adb`/Mac/Xcode device console access to this iPhone during testing —
+>   whatever the answer is, it has to come from Bark's own source/docs/issues,
+>   not from me instrumenting the phone.
+>
+> **What I want:**
+> 1. Look at Bark's actual iOS source (https://github.com/Finb/Bark) —
+>    specifically how it implements `UNUserNotificationCenterDelegate`'s
+>    `didReceive response:withCompletionHandler:` (or wherever it reads the
+>    `url` field and calls `openURL`). Is there ANY conditional logic there —
+>    on `level`, on whether the app was already running, on cold vs warm
+>    launch, on notification category — that would explain sometimes showing
+>    Bark's own root view before jumping to `url`, and sometimes not?
+> 2. Search Finb/Bark's GitHub issues (open and closed) for reports matching
+>    this behavior — notification tap opening Bark's own list/history before
+>    (or instead of) following `url`. Quote the issue number and any
+>    maintainer response if found.
+> 3. Is there a Bark app-level SETTING (inside Bark's own Settings tab, not a
+>    push payload field) that affects this — e.g. something like "open URL
+>    directly" vs "show notification detail first"? If one exists, give the
+>    EXACT setting name and location in Bark's current iOS UI — this has to be
+>    handed to someone who's already been sent on failed settings hunts
+>    elsewhere in this project, so it can't be a guess.
+> 4. Is this specifically an iOS platform behavior for Critical Alerts (via
+>    `UNNotificationInterruptionLevel.critical`) — i.e. does iOS require
+>    critical alerts to be acknowledged inside their owning app before
+>    honoring any follow-on `openURL`, in a way that doesn't apply to lower
+>    interruption levels? If so, is there a Bark payload combination
+>    (different `level`, plus something else to still guarantee the critical
+>    bypass-silent-mode behavior) that avoids this?
+> 5. Realistically: is this fixable via payload/settings at all, or is it
+>    inherent to relaying pushes through a third-party app (Bark) rather than
+>    using a real PushKit VoIP push + CallKit in the app itself? Be direct
+>    about which of the above is confirmed from source/docs vs. speculative —
+>    this project has already burned real time on a plausible-sounding
+>    assumption before a live test disproved it, so don't paper over
+>    uncertainty.
+
+**First step next session (or later this one): get concrete repro details for
+the Oppo missed-call report** — still nothing gathered, the user asked to
+deal with iPhone first this session. Don't guess at a fix for it from the
+table alone, same rule as before.
 
 ### Honesty check on "fixed" claims below
 
@@ -33,22 +262,10 @@ the original Bark ring-overrun bug (call kept ringing 15-20s after kiosk
 hangup) and the Android placeholder-TTL stuck-screen bug both have direct,
 repeated on-device confirmation via the debug strip and are reasonably
 trustworthy. **Everything else should be treated as "built and deployed,
-NOT independently confirmed working" until re-tested — in particular the
-iOS timing/heartbeat fixes, which the user installed and reports are
-STILL NOT FIXED, with no specifics gathered yet on what's still wrong.**
-Don't assume "I pushed a fix for X" means X is actually fixed. Test it.
-
-### iOS — reported still broken after the session 28 build, needs re-diagnosis
-
-The session 28 iOS build (heartbeat-from-placeholder fix, REPEAT_MS timing
-tuning) was built, installed on the spare iPhone, and the user reports it is
-**not fixed** — no specifics on what's still wrong were captured before the
-session ended. **First step: ask what specifically is still broken** (ring
-gap still too long? still ringing after hangup? something new?) rather than
-assuming it's the same symptom as before. Don't re-explain the backend
-mechanism from scratch — it's documented in detail in session 28's log below
-and in `calendar_backend.py`'s own comments — but don't assume it's working
-either.
+NOT independently confirmed working" until re-tested.** The iOS
+timing/heartbeat fixes this warned about are the ones root-caused above in
+session 29 — don't assume "I pushed a fix for X" means X is actually fixed
+even now; symptom 3's fix specifically still needs a live test.
 
 ### Android — Telecom investigation, not more settings-hunting
 

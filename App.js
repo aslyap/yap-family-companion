@@ -387,6 +387,24 @@ function StreamWrapper({ children }) {
   const clientRef = useRef(null);
   const [retryCount, setRetryCount] = useState(0);
   const callPending = useCallPending();
+  // Session 29: covers `children` (the tab navigator) while a resume from
+  // background is ambiguous — we don't yet know if it's an incoming call.
+  //
+  // NOT confirmed to be what caused "Bark opens to the Messages tab first" —
+  // the user confirmed that really is Bark's own app UI, not this app's Chat
+  // tab, so that symptom's cause is still whatever the session 28/29 Bark
+  // source research already found (Bark's own cold-launch app-switch). This
+  // cover exists for a DIFFERENT, still-real gap found by reading this
+  // file's own resume handler: when the app is merely backgrounded (not
+  // force-quit) and resumed, there is a genuine window before this component
+  // notices a call is arriving where whatever this app was last showing is
+  // visible underneath. Keeping this fix — it is a real gap regardless of
+  // symptom 1's actual cause — but not claiming it explains symptom 1
+  // specifically. Set true the instant the app leaves 'active' (see the
+  // AppState listener below) so even iOS's own app-switcher snapshot / first
+  // resumed frame is already covered, not just the frame React gets around
+  // to painting after JS resumes.
+  const [resumeCover, setResumeCover] = useState(false);
   // A deep link waiting to be handled.
   //
   // STATE, not a ref, and wrapped in an object so an identical URL still counts as
@@ -470,10 +488,42 @@ function StreamWrapper({ children }) {
         // Reconnect after long background stint (Android kills WS after ~30s).
         let bgAt = null;
         const appSub = AppState.addEventListener('change', nextState => {
-          if (nextState === 'background') {
-            bgAt = Date.now();
-          } else if (nextState === 'active' && bgAt !== null && !cancelled) {
-            const bgSecs = Math.round((Date.now() - bgAt) / 1000);
+          if (nextState !== 'active') {
+            if (nextState === 'background') bgAt = Date.now();
+            // See resumeCover's declaration above. Covers on 'inactive' too
+            // (iOS passes through it before 'background'), not just on the
+            // background stint that triggers the reconnect logic below.
+            setResumeCover(true);
+            return;
+          }
+          if (cancelled) return;
+          if (bgAt === null) {
+            // active without a preceding 'background' (e.g. Control Centre,
+            // a system dialog) — nothing to reconnect, just release the cover.
+            setResumeCover(false);
+            return;
+          }
+          const bgAtCaptured = bgAt;
+          const bgSecs = Math.round((Date.now() - bgAtCaptured) / 1000);
+          bgAt = null;
+          // Session 29: a Bark-tap resume races this 'active' event against
+          // the Linking 'url' event carrying the call's cid — observed live
+          // firing in either order. If 'active' wins, isCallPending() below
+          // reads false for a resume that IS an incoming call, and the
+          // reconnect branch tears down and rebuilds the whole client mid-
+          // ring, adding real delay right when the ring is racing the
+          // backend's own resend timing (see calendar_backend.py's
+          // _ring_worker). Plausible contributor to the banner-related
+          // symptoms when this app was resumed from background rather than
+          // cold-started; NOT confirmed to be the whole story (see
+          // resumeCover's declaration above re: symptom 1 specifically).
+          // This grace window lets the url event land first in the common
+          // case where both fire within the same native event-loop tick.
+          // Worst case for a genuine non-call resume: the reconnect decision
+          // (and the reconnect itself, if needed) lands 250ms later —
+          // imperceptible.
+          setTimeout(() => {
+            if (cancelled) return;
             // Never tear the client down while it holds a call.
             //
             // Measured: `#2 call seen by=family-hub` at 33:03.223, then
@@ -489,7 +539,7 @@ function StreamWrapper({ children }) {
             // also just proven its WebSocket is alive, which is the only thing the
             // reconnect was ever checking for.
             const heldCalls = c.state?.calls?.length ?? 0;
-            if (Date.now() - bgAt > 30000 && heldCalls === 0 && !isCallPending()) {
+            if (Date.now() - bgAtCaptured > 30000 && heldCalls === 0 && !isCallPending()) {
               // This full teardown + reconnect is the remaining cost of unlocking a
               // phone that has been idle, and it is unmeasured. If the placeholder
               // still sits on "Connecting…" for a long time, the gap between this
@@ -516,8 +566,12 @@ function StreamWrapper({ children }) {
                 })
                 .catch(err => console.warn('[Stream] resume queryCalls failed:', err));
             }
-            bgAt = null;
-          }
+            // Whatever the call state turned out to be, the real call-cover
+            // machinery (IncomingCallPlaceholder / CallOverlay) is now the
+            // authority on what to show — this cover was only ever bridging
+            // the gap before that machinery had a chance to decide.
+            setResumeCover(false);
+          }, 250);
         });
         c.__appStateSub = appSub;
 
@@ -649,6 +703,14 @@ function StreamWrapper({ children }) {
   return (
     <>
       {children}
+      {/* Session 29 — see resumeCover's declaration above. Plain themed cover,
+          not gated on identity: it has to hide whatever tab was already on
+          screen before an incoming call (or anything else) is known, which is
+          exactly the state where identity is already chosen and children is
+          already showing real content. */}
+      {resumeCover && (
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: COLORS.background }]} />
+      )}
       {/* A call is on its way but there is no call object to render yet. Covers the
           app's own UI so a cold-started call goes straight to a call screen instead
           of flashing the Home tab for the length of the connect. Rendered BEFORE the
