@@ -190,11 +190,49 @@ made the app less usable than before session 30's fix, not more.
 
 **Fixed:** added `getPendingAgeMs()` to `src/pendingCall.js`, and gated the
 force-`leave()` call at both sites (not the cover-clearing itself, which is
-harmless either way) behind `STALE_LEAVE_GRACE_MS = 5000` — long enough to
-clear the observed sub-1s race with real margin, short enough to stay well
-under the 10-20s window that made a call worth force-leaving in the first
-place, and short of the 25s `IncomingCallPlaceholder` TTL backstop. Not yet
-committed/built — next step.
+harmless either way) behind a `STALE_LEAVE_GRACE_MS` age gate. Committed
+`d213cd3`, pushed. Rebuild deliberately held at the user's request — more
+Android testing continued on the still-old `837f389` install first.
+
+**UPDATE, same session — the grace period itself needed revising before
+trusting it, caught BEFORE shipping a build, not after:** continued testing
+on the old (unfixed) `837f389` build kept hitting the same known bug, and
+the debug strip handed over two more data points — force-leaves at
+**4003ms** and **4878ms** after the call was first seen, on top of the
+original 33ms and 896ms. 4878ms left only ~120ms of real margin under the
+first-tried 5000ms gate — far too tight, and one of these (call `#3`)
+force-left WHILE the user was mid-accept, producing exactly the confusing
+"banner Accept opened the ring screen, needed a second tap, took ~15s"
+symptom reported live, plus a `Camera init failed` SDK warning consistent
+with a call disrupted mid-connect. **Revised `STALE_LEAVE_GRACE_MS` from
+5000 to 10000** (`App.js`, not yet committed as of this note — see current
+code) — still well short of the 10-20s reappearance window, but with actual
+headroom over the widest race observed so far. This also means Test 3
+(foreground double-UI) and Test 4 (~20s Accept spin) can't be trusted on
+the current build either — the force-leave bug's window is wide enough to
+be contaminating those results too, not just the locked-phone reappearing-
+call scenario it was first caught in.
+
+**UPDATE, same session — one more casualty found, same suspected root
+cause:** with the app open in the foreground, a call failed to connect at
+all. The debug strip's call `#3` (the one force-left at 4878ms, see above)
+was followed by a NEW connect cycle that got to `callingState: joining`
+and then stalled on `[sdk] [devices]: Failed to get video stream` /
+`[sdk] [Call]: Camera init failed`, with no further progress logged.
+**Not independently investigated — suspected fallout from the same bug,
+not a separate one:** this was the third rapid force-leave/reconnect cycle
+in about 3 minutes of testing; a camera session torn down abruptly by a
+forced `leave()` plausibly leaves the hardware handle in a bad state for
+the next call's `camera.init()`. Flagging in case it recurs on the fixed
+build — if it does, it's real and independent; if it doesn't, this
+confirms it was contamination from the force-leave bug and needs no
+separate fix.
+
+**Decision: stop testing on `837f389`.** The false-positive window is wide
+enough (up to 4878ms observed) that it's plausibly touching every test in
+this session, not just the one it was first caught in — further testing on
+this build isn't reliable signal. Next: build and ship the widened fix,
+then resume Test 3/4 clean.
 
 ## Session 30 progress — Gemini's 3 actionable Android fixes implemented (untested), iOS/Android installs handed to the user in parallel
 

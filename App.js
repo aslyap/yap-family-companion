@@ -46,16 +46,19 @@ const PACKAGE = 'com.yapfamily.companion';
 
 // Session 31 — the reconciliation force-leave() added in session 30 (below, both
 // sites) turned out to false-positive on calls that are still genuinely fresh: the
-// debug strip caught it forcing a leave() 33ms-896ms after a call was first seen,
-// silently ending live calls the user never touched and posting them as missed. The
-// `queryCalls({ringing: true})` REST read this checks against can lag behind the
-// WS ring event that populates useCalls() by that much — an eventual-consistency
-// gap, not evidence the call is actually gone. A stale call worth force-leaving is
-// the OPPOSITE case this was built for: one that reappears 10-20s after it already
-// ended (see the reappearing-call writeup, session 30). 5s comfortably clears the
-// observed sub-1s race while staying far short of that 10-20s window, so it still
-// catches the calls this was meant to catch.
-const STALE_LEAVE_GRACE_MS = 5000;
+// debug strip caught it forcing a leave() 33ms, 896ms, 4003ms and 4878ms after a
+// call was first seen, across four separate live calls — silently ending live
+// calls the user never touched (in one case mid-accept) and posting them as
+// missed. The `queryCalls({ringing: true})` REST read this checks against can lag
+// behind the WS ring event that populates useCalls() by that much — an
+// eventual-consistency gap, not evidence the call is actually gone. A stale call
+// worth force-leaving is the OPPOSITE case this was built for: one that reappears
+// 10-20s after it already ended (see the reappearing-call writeup, session 30).
+// First tried 5000ms; the 4878ms data point left only ~120ms of real margin, so
+// bumped to 10000ms — still well short of the 10-20s window that makes a call
+// worth force-leaving, but with actual headroom over the widest race observed
+// so far, not a near-miss.
+const STALE_LEAVE_GRACE_MS = 10000;
 
 // These settings intents take a `package:` data URI — not extras. Linking.sendIntent
 // does not fire them in this Expo build, so go through expo-intent-launcher.
