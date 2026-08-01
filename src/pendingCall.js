@@ -51,6 +51,11 @@ export function getPendingCid() {
   return isCallPending() ? pendingCid : null;
 }
 
+/** How long ago the current pending call was signalled, or null if none is pending. */
+export function getPendingAgeMs() {
+  return pendingSince === null ? null : Date.now() - pendingSince;
+}
+
 export function clearCallPending() {
   if (pendingSince === null) return;
   pendingSince = null;

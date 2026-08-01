@@ -1,5 +1,201 @@
 # yap-family-companion — Session Handoff
 
+## Session 31 progress — iOS delete-push fix shipped and confirmed working unlocked (locked case root-caused, upstream Bark PR is the plan); Android live-test caught and fixed a real regression in session 30's reappearing-call safety net
+
+Picked up session 30's handoff exactly as written (companion `1dfee6f`, kiosk
+`79796d5` — both confirmed matching, no drift, `git pull` on both a no-op).
+
+**Gemini round 3 answered (2026-08-01) — the `delete=1` question from session
+30's reopened banner symptoms.** Full findings:
+
+1. **`delete=1` DOES dismiss an already-displayed, undismissed banner**, not
+   just Notification Center/history — confirmed via Bark's `AppDelegate`
+   calling `UNUserNotificationCenter.removeDeliveredNotifications
+   (withIdentifiers:)` directly, cited against a real open-source consumer
+   (`cmux`) using this exact API for live banner dismissal.
+2. **Delete-then-fresh-resend does force a genuinely new banner paint**, as
+   hoped — but flagged two real risks: (a) if the resend push is itself
+   `critical`, iOS replays the critical-alert siren on the fresh delivery
+   (irrelevant here — `notifyCalleeMissed` was already `level: 'active'`,
+   confirmed by reading `streamVideo.js`, never `critical`); (b) APNs
+   delivery is async/unordered, so if a resend somehow overtook its own
+   delete push, the delete would land after and wipe the resend too — worse
+   than today's behavior. Mitigated, not eliminated, by awaiting the delete
+   push's own HTTP round trip plus a fixed settle margin before sending the
+   resend (see code below).
+3. **Background App Refresh is a hard OS requirement**, not a Bark quirk —
+   delete pushes are silent (`content-available:1`) pushes, and iOS drops
+   them outright if BAR is off or the phone is in Low Power Mode. Same
+   failure mode either way: banner just doesn't clear, no new failure class.
+4. Gemini's aside (Live Activities via push, iOS 16.1+) would sidestep BAR
+   entirely and update without replaying sound, but requires forking Bark to
+   add ActivityKit support (it's a generic relay) and can't drive a critical
+   siren — parked, not pursued; the existing Bark path already covers the
+   two reopened symptoms without it.
+
+**Built, in `yap-family-home` (kiosk repo), commit `19ee582` — NOT deployed
+to Fly, NOT live-tested:**
+
+- `calendar_backend.py`'s `CLEAR_BANNER_ON_SUPPRESS` (banner-over-call-screen
+  symptom): the old passive same-id overwrite push is replaced with a bare
+  `delete: "1"` push for the same id. No resend needed for this symptom
+  specifically — the phone's own in-app ring screen is already confirmed
+  live by the time this fires (that's what triggers the branch), so the goal
+  is just making the redundant OS banner disappear, not repainting content.
+- `streamVideo.js`'s `notifyCalleeMissed()` (kiosk-reject → "Missed call"
+  banner symptom): now sends a `delete: "1"` push for the stale "Yap Family
+  calling" id, awaits its HTTP round trip plus a 600ms `DELETE_SETTLE_MS`
+  margin, then sends the existing "Missed call" content as what is now a
+  fresh delivery rather than an in-place rewrite.
+- Both changes are flagged (`CLEAR_BANNER_ON_SUPPRESS` / new
+  `DELETE_BEFORE_MISSED_NOTE`, both default `true`) and one-line-revertable,
+  mirroring how the original (now-superseded) same-id approach was built.
+
+**UPDATE, same session: pushed and deployed.** User approved deploying
+immediately rather than waiting. `19ee582` pushed to `yap-family-home`
+origin; `flyctl deploy` run — machine `148ee714a10278` reached `started`,
+logs show a clean `Application startup complete` / `Uvicorn running on
+http://0.0.0.0:8080` with no errors. flyctl printed a `not listening on the
+expected address` warning during rollout; verified as a false positive —
+`GET /openapi.json` returned 200 and `POST /api/ring/stop` returned
+`{"ok":true}` immediately after, both logged server-side. Both delete-push
+fixes are now LIVE.
+
+**Live-tested by the user, same session (2026-08-01) — LOCKED vs. UNLOCKED
+split found, genuinely new data:**
+
+- **Unlocked (foreground AND background): both reopened symptoms are
+  FIXED.** Delete-then-fresh-resend works as designed on an unlocked phone.
+- **Locked: both symptoms still unfixed**, same as before the delete-push
+  change. **Not yet root-caused, but consistent with a real mechanism, not
+  just "still broken":** delete pushes are silent (`content-available:1`)
+  pushes that require the app to wake in the background and execute code —
+  iOS is well documented to defer/throttle background execution more
+  aggressively while the phone is locked than while it's active, independent
+  of the Background App Refresh setting itself. Not confirmed against
+  Background App Refresh's actual on/off state on the spare iPhone yet —
+  that check is still outstanding and would help separate "BAR is off
+  entirely" (both states would fail identically) from "BAR is on but iOS
+  deprioritizes it while locked" (matches the exact locked/unlocked split
+  observed).
+
+**"Vanishing record" symptom, found live-testing the unlocked case — CLOSED,
+confirmed NOT a bug, same session.** Initial live hypothesis (that the
+delayed delete push was wiping the resend out from under it — Gemini round
+3 explicitly warned this ordering race was possible) was tested directly and
+disproven: user confirmed the banner was visible ~6s (matches normal
+"Temporary" banner auto-dismiss timing, not an abrupt external removal),
+and — checked directly, not assumed — the note IS present in iOS
+Notification Center after the banner auto-hides, just no longer shown as a
+banner. That is the correct, expected place for a record to live on an
+**unlocked** phone (there is no lock screen to persist it on in that
+state), not a missing record. Nothing to fix here; `notifyCalleeMissed()`
+left as-is.
+
+**Background App Refresh confirmed ON for Bark** (user checked directly,
+2026-08-01) — both the per-app toggle and the global switch. This rules out
+"BAR is off entirely" as the locked-phone explanation; the delete push
+should be permitted to wake the app in principle, and still doesn't clear
+the banner while locked. Narrows the remaining hypothesis to iOS
+deprioritizing/delaying the delete's actual background execution while the
+phone is locked specifically, independent of BAR being enabled — not
+confirmed, no primary-source citation for this yet. **Next: a Gemini round
+4 prompt on this exact question, not yet sent.**
+
+**Gemini round 4 answered (2026-08-01) — locked-phone case now genuinely
+root-caused, with a real citation, not a guess:**
+
+Apple's own docs on background notifications (*Pushing Background Updates to
+Your App*) describe silent (`content-available:1`) pushes as strictly
+best-effort/low-priority: "the system may hold and delay the delivery of
+the notification," and holds only the newest if several arrive before it
+runs. While the phone is locked, iOS is far more conservative about
+granting an app background execution time at all — corroborated by
+widely-reported developer-forum experience, not just inferred — so the
+`delete` push's silent wake frequently never runs (or runs too late) while
+locked, exactly matching the observed 100%-works-unlocked /
+100%-fails-locked split. This is NOT a bug in this project's code or a
+settle-margin tuning problem: a longer delay before the resend wouldn't
+help, because the constraint is whether iOS grants execution time at all,
+not how long the code takes once granted.
+
+**Real fix identified, NOT a small change:** a `UNNotificationServiceExtension`
+gets a guaranteed ~30s execution window before ANY push (including
+high-priority alerts) displays, locked or not — inside it, call
+`removeDeliveredNotifications` for the stale id, then hand a fresh "Missed
+call"/cleared payload to the OS as a single push (no more two-push
+delete-then-resend at all). **The catch: Bark is a pre-built relay app with
+no such extension. Getting this would mean forking `Finb/Bark`, adding an
+NSE target in Xcode, and distributing a custom-built Bark ourselves** — the
+same distribution model already used for the companion app itself
+(SideStore, no App Store), so it's not unprecedented in this project, but
+it is a materially bigger undertaking than anything shipped so far on this
+symptom (an entire second app to build, sign, and keep in sync with
+upstream Bark going forward). Also flagged, not previously surfaced by
+Gemini: a private fork would need its own Apple-granted Critical Alert
+entitlement — Bark's own build already has it, a new bundle ID would have
+to independently qualify, not guaranteed, and losing it would break the
+critical-ring capability the whole system depends on. **User decision
+(2026-08-01): go with (c) — file the NSE idea upstream to `Finb/Bark`
+first** (lower cost, no entitlement risk, but outside our control —
+depends entirely on the maintainer), **falling back to accepting the
+locked-phone case as a platform limitation if that goes nowhere.** Not
+filed yet.
+
+### Android — combined build `837f389` live-tested, found and fixed a real
+regression from session 30's own reappearing-call safety net
+
+User installed `837f389` (companion `29b2246a`'s corrections + session 30's
+3 Gemini fixes) on the Oppo and worked through the planned test order.
+
+**Baseline (`29b2246a`) regressions: confirmed still good.** Ring sound
+back, Accept/join not hanging, full-screen-intent permission prompt
+reappeared and was accepted on this install.
+
+**New regression found live-testing symptom 2's fix (the reappearing-call
+safety net) — confirmed via debug strip, not a guess, and FIXED same
+session:** calls placed to a locked phone were ending on their own
+~1s-or-less after appearing, with no user action — the full-screen ring UI
+would vanish, and the call was still reachable via the native Android
+banner notification, which pointed straight at the two `App.js`
+reconciliation sites session 30 added. Debug strip evidence, verbatim:
+
+```
+58:30.680 #4 call seen by=family-hub
+58:31.576 pending cid 5585510663 not in ringing calls on resume — clearing cover
+58:31.577 forced leave (stale on resume) ok: 5585510663
+58:31.611 missed: posted for 7:58 pm
+```
+
+and, worse, on a later call:
+
+```
+59:45.267 pending cid 5585583364 not in ringing calls on reconnect — clearing cover
+59:45.268 #6 call seen by=family-hub
+59:45.300 forced leave (stale on reconnect) ok: 5585583364
+59:45.320 missed: posted for 7:59 pm
+```
+
+**Root cause:** both reconciliation sites treat "this cid isn't in the
+`queryCalls({ringing:true})` response" as proof the call has already ended,
+then force a local `leave()` on it (session 30's fix for calls that
+reappear 10-20s after genuinely ending). But that REST read can lag the WS
+ring event that populates `useCalls()` — the debug strip caught the gap at
+33ms and 896ms in two separate calls — so on a fresh call the check was
+firing before the call had even propagated into that query's result,
+force-leaving and missed-call-posting real, live, untouched calls almost
+immediately. Nearly every test call in this session's log ended up posted
+missed, either via this false positive or a later legitimate timeout — this
+made the app less usable than before session 30's fix, not more.
+
+**Fixed:** added `getPendingAgeMs()` to `src/pendingCall.js`, and gated the
+force-`leave()` call at both sites (not the cover-clearing itself, which is
+harmless either way) behind `STALE_LEAVE_GRACE_MS = 5000` — long enough to
+clear the observed sub-1s race with real margin, short enough to stay well
+under the 10-20s window that made a call worth force-leaving in the first
+place, and short of the 25s `IncomingCallPlaceholder` TTL backstop. Not yet
+committed/built — next step.
+
 ## Session 30 progress — Gemini's 3 actionable Android fixes implemented (untested), iOS/Android installs handed to the user in parallel
 
 Picked up session 29's handoff exactly as written (companion `f3dc793`, kiosk
@@ -289,8 +485,10 @@ state (2026-08-01 repro, gathered directly from the user, not guessed).
 | Phone state | Symptom | Status | Plan |
 |---|---|---|---|
 | Locked | Sometimes opens to Bark's own Messages tab before the call screen | 🔶 **Gemini round 2 (2026-08-01): concrete, testable hypothesis, not solved.** Correlates with companion app swipe state because a force-quit app gets iOS's static LaunchScreen instantly (zero app work, so Bark's own UI never lingers), while a merely-backgrounded app must actually wake its JS thread/AppState/WebSocket before iOS completes the handoff — if that blocks the main thread 200-500ms, Bark stays visible for the wait. Ties directly to real resume-path code already read this session. | **Ask the user to watch closely on the next natural resume**: does a force-quit reopen show the static launch screen instantly the moment Bark disappears, vs. a backgrounded reopen showing a frozen/stale app snapshot with a beat before it responds? Confirms or denies before any code is written — not a Mac/Xcode-dependent check. |
-| **Any** (not locked-specific — happens across all phone states) | Sometimes Bark banner sits on top of the just-opened call screen | 🔶 **REOPENED 2026-08-01 — user correctly rejected the one-citation "platform limitation" close.** Gemini's `UNNotificationRequest` citation only rules out SAME-ID CONTENT REPLACEMENT as a live-refresh mechanism, not DELETE-then-FRESH-RESEND, which Bark's own docs describe as a genuinely different, untried mechanism (`delete=1` + `id` — see prose write-up above). This session's fix (`CLEAR_BANNER_ON_SUPPRESS`) uses same-id replacement, so its ineffectiveness doesn't rule out the delete-based approach. | **Send the new Gemini prompt** (below) to confirm whether `delete=1` actually dismisses an active on-screen banner (not just Notification Center/history), and whether Background App Refresh is enabled for Bark on the spare iPhone (required for `delete` to work at all, per Bark's docs). If confirmed viable, build a delete-then-resend backend experiment next session. |
-| **Any** (not locked-specific — happens across all phone states) | Kiosk-reject leaves "Yap Family calling" banner instead of "Missed call" | 🔶 **REOPENED 2026-08-01 — same reasoning as the row above.** Banner stays "Yap Family calling" until swiped, then correctly shows "Missed call" — the backend fix (`dbb56ca`) sends the right content via same-id replacement, but same-id replacement is the mechanism now suspected of being avoidable via delete-then-resend instead. | **Same as above** — pending the Gemini prompt's answer on `delete=1`'s actual scope. |
+| **Unlocked** (foreground or background) | Sometimes Bark banner sits on top of the just-opened call screen | ✅ **FIXED, confirmed live 2026-08-01.** `CLEAR_BANNER_ON_SUPPRESS` in `calendar_backend.py` now sends a bare `delete=1` push instead of the old passive same-id overwrite (`19ee582`, kiosk repo, deployed). | **Closed for unlocked.** See locked row below — same underlying mechanism, different outcome. |
+| **Locked** | Sometimes Bark banner sits on top of the just-opened call screen | ❌ **Still fails locked — root-caused, not a guess.** Gemini round 4 (2026-08-01), citing Apple's own background-notification docs: silent (`delete`) pushes are best-effort, and iOS is far more conservative about granting an app background execution time at all while locked — Background App Refresh confirmed ON on-device, ruling that out specifically. Real fix needs a `UNNotificationServiceExtension` (guaranteed pre-display execution window regardless of lock state), which Bark doesn't have. | **User decision (2026-08-01): try the low-cost path first (option c) — file an NSE feature request/PR upstream to `Finb/Bark`**, rather than forking privately. A private fork was considered and set aside for now: it would need its own Apple-granted Critical Alert entitlement (Bark's own build already has it; a new bundle ID would have to independently qualify, not guaranteed) — real risk of breaking the critical-ring capability this whole system depends on, for an uncertain payoff. Fall back to accepting locked-phone as a platform limitation if the upstream PR goes nowhere. **Not filed yet.** |
+| **Unlocked** (foreground or background) | Kiosk-reject leaves "Yap Family calling" banner instead of "Missed call" | ✅ **FIXED, confirmed live 2026-08-01.** `notifyCalleeMissed()` in `streamVideo.js` sends a delete push for the stale id, awaits it, then resends "Missed call" as a fresh delivery (`19ee582`, kiosk repo, deployed). No double-siren risk (this note was already `level: 'active'`, never `critical`). Also checked: the note visibly auto-hides after ~6s (normal banner behavior) then correctly persists in Notification Center — initially flagged as a possible new bug, live-tested and confirmed NOT one. | **Closed for unlocked.** Same locked-phone caveat as the row above. |
+| **Locked** | Kiosk-reject leaves "Yap Family calling" banner instead of "Missed call" | ❌ **Still fails locked — same root cause and same plan as the row above.** | **Same as above** — pending the upstream Bark PR outcome. |
 | Unlocked, app in foreground | Sometimes BOTH Bark AND the Yap Family call screen open (should be just the call screen) | ❌ **Live-tested 2026-08-01, still happens — but now genuinely diagnosed, not a guess.** Read the Fly backend's own logs for the exact test calls: 2 of 3 timed calls show the real Bark ring firing because the phone's heartbeat POST took 6–14s to reach the backend, not the ~1s the 1800ms margin assumed — the bump was irrelevant to a gap that size. Most likely cause: `App.js`'s full client-teardown-and-reconnect path (fires after >30s backgrounded) delaying `IncomingCallScreen` from mounting and heartbeating. **Not confirmed** — needs a debug-strip screenshot from a live slow instance. | **Get a debug-strip screenshot on the next occurrence**, specifically watching for a `resume: reconnecting after Xs bg` line right before the affected call. No code change until that confirms or rules out the reconnect theory. |
 | Unlocked, app in foreground | Ending call from kiosk | ✅ Works correctly, no issue | None needed. |
 | Unlocked, app backgrounded | Only Bark notification shows (correct), but mistimed: banner disappears while the ringtone keeps playing (audio/visual desync). Working correctly = banner stays on screen in sync with the sound. | ❌ **Gemini round 2's proposed mechanism (banner-style-driven auto-dismiss timing) is now DISPROVEN, not just unconfirmed.** User ran the actual A/B test live on-device 2026-08-01: Banner Style was `Persistent` (matching session 28's record — that record was correct, nothing had reverted), switched it to `Temporary`, symptom unchanged either way. If the banner-lifetime-vs-30s-sound mechanism Gemini proposed were right, Temporary should have made the desync visibly worse or at least different — it didn't, at all. This rules out banner style as a factor entirely, not just as an already-tried fix. Back to genuinely unexplained; still corroborated at a general level by `Finb/Bark#256` (repeated/looping critical alerts losing sync across components), but the specific mechanism proposed for it is now known wrong. Reviewed the rest of Bark's notification settings screen via a live screenshot (2026-08-01) looking for any other lever: Critical Alerts on, Lock Screen/Notification Centre/Banners all checked, Sounds/Badges on, Show Previews Always, Time-Sensitive off (irrelevant, different interruption level), Notification Grouping `Automatic` — nothing else here is a backed hypothesis. **User was told to revert Banner Style back to `Persistent`** (no proven benefit to Temporary, and Persistent is strictly better for a call alert's visibility regardless of this symptom). Notification Grouping → `Off` was flagged as a zero-cost, low-confidence guess worth a five-second try, explicitly NOT presented as a real lead the way the (now-disproven) Banner Style theory was. **Tried 2026-08-01, also confirmed no change.** Two concrete settings now conclusively ruled out by direct test (Banner Style, Notification Grouping), not assumption. | **Nothing further planned from settings** — both concrete levers tried and ruled out. The `delete`-push mechanism being investigated for symptoms A/B above (see reopened section) may be relevant here too if it pans out, since it's the same underlying "force a fresh delivery instead of updating an existing one" idea — revisit this row if that research lands anything real. |

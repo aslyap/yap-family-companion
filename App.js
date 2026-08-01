@@ -25,7 +25,7 @@ import { getOrCreateClient, clearClient } from './src/streamClient';
 import { onOutgoingCallChange, getOutgoingCall } from './src/outgoingCallStore';
 import { getDebugLines, onDebugLog, debugLog } from './src/debugLog';
 import { callSeq } from './src/callTrace';
-import { markCallPending, clearCallPending, useCallPending, isCallPending, getPendingCid } from './src/pendingCall';
+import { markCallPending, clearCallPending, useCallPending, isCallPending, getPendingCid, getPendingAgeMs } from './src/pendingCall';
 import { isAccepting, pruneAccepting } from './src/acceptState';
 import { returnToAndroidHome } from './src/returnHome';
 import { postMissedCall } from './src/missedCall';
@@ -43,6 +43,19 @@ const SHOW_CALL_DEBUG = true;
 const BUILD_TAG = process.env.EXPO_PUBLIC_BUILD_TAG ?? 'dev';
 
 const PACKAGE = 'com.yapfamily.companion';
+
+// Session 31 — the reconciliation force-leave() added in session 30 (below, both
+// sites) turned out to false-positive on calls that are still genuinely fresh: the
+// debug strip caught it forcing a leave() 33ms-896ms after a call was first seen,
+// silently ending live calls the user never touched and posting them as missed. The
+// `queryCalls({ringing: true})` REST read this checks against can lag behind the
+// WS ring event that populates useCalls() by that much — an eventual-consistency
+// gap, not evidence the call is actually gone. A stale call worth force-leaving is
+// the OPPOSITE case this was built for: one that reappears 10-20s after it already
+// ended (see the reappearing-call writeup, session 30). 5s comfortably clears the
+// observed sub-1s race while staying far short of that 10-20s window, so it still
+// catches the calls this was meant to catch.
+const STALE_LEAVE_GRACE_MS = 5000;
 
 // These settings intents take a `package:` data URI — not extras. Linking.sendIntent
 // does not fire them in this Expo build, so go through expo-intent-launcher.
@@ -609,12 +622,21 @@ function StreamWrapper({ children }) {
                     // still holds for that cid, rather than leaving Telecom teardown
                     // dependent on a background API call that may have already
                     // failed.
-                    const stale = c.state?.calls?.find(call => call.cid === pendingCid);
-                    if (stale && stale.state.callingState !== CallingState.LEFT && !stale.state.endedAt) {
-                      stale.leave().then(
-                        () => debugLog(`forced leave (stale on resume) ok: ${pendingCid.slice(-10)}`),
-                        err => debugLog(`forced leave (stale on resume) FAILED: ${err?.message ?? err}`),
-                      );
+                    //
+                    // Session 31: gated on age. Live-tested and caught force-leaving
+                    // calls that were still genuinely ringing — see
+                    // STALE_LEAVE_GRACE_MS above for why.
+                    const age = getPendingAgeMs();
+                    if (age !== null && age < STALE_LEAVE_GRACE_MS) {
+                      debugLog(`pending cid ${pendingCid.slice(-10)} not in ringing calls on resume but only ${age}ms old — not forcing leave yet`);
+                    } else {
+                      const stale = c.state?.calls?.find(call => call.cid === pendingCid);
+                      if (stale && stale.state.callingState !== CallingState.LEFT && !stale.state.endedAt) {
+                        stale.leave().then(
+                          () => debugLog(`forced leave (stale on resume) ok: ${pendingCid.slice(-10)}`),
+                          err => debugLog(`forced leave (stale on resume) FAILED: ${err?.message ?? err}`),
+                        );
+                      }
                     }
                   }
                 })
@@ -750,12 +772,24 @@ function StreamWrapper({ children }) {
               // reasoning. Force local teardown of any stale call object this
               // client still holds, rather than trusting a background reject that
               // may have already failed server-side.
-              const stale = c.state?.calls?.find(call => call.cid === pendingCid);
-              if (stale && stale.state.callingState !== CallingState.LEFT && !stale.state.endedAt) {
-                stale.leave().then(
-                  () => debugLog(`forced leave (stale on reconnect) ok: ${pendingCid.slice(-10)}`),
-                  err => debugLog(`forced leave (stale on reconnect) FAILED: ${err?.message ?? err}`),
-                );
+              //
+              // Session 31: gated on age — see STALE_LEAVE_GRACE_MS above. Live-tested
+              // and caught force-leaving calls still genuinely ringing, seconds-old or
+              // less (one as fresh as 33ms), silently ending real calls and posting
+              // them missed. This queryCalls read can lag the WS ring event that
+              // populates useCalls() by that much; a call worth force-leaving is the
+              // opposite case (reappears 10-20s after it already ended), not this one.
+              const age = getPendingAgeMs();
+              if (age !== null && age < STALE_LEAVE_GRACE_MS) {
+                debugLog(`pending cid ${pendingCid.slice(-10)} not in ringing calls on reconnect but only ${age}ms old — not forcing leave yet`);
+              } else {
+                const stale = c.state?.calls?.find(call => call.cid === pendingCid);
+                if (stale && stale.state.callingState !== CallingState.LEFT && !stale.state.endedAt) {
+                  stale.leave().then(
+                    () => debugLog(`forced leave (stale on reconnect) ok: ${pendingCid.slice(-10)}`),
+                    err => debugLog(`forced leave (stale on reconnect) FAILED: ${err?.message ?? err}`),
+                  );
+                }
               }
             }
           })
