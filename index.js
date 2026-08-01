@@ -63,6 +63,23 @@ if (Platform.OS === 'android') {
         title: 'Yap Family calling',
         body: 'Tap to answer',
       },
+      // Session 29: reported live — when the app is already foregrounded, BOTH
+      // a heads-up banner AND the app's own full-screen IncomingCallScreen show
+      // at once. Confirmed via the SDK's own source (react-native-callingx is
+      // NOT the source of this — its setupAndroid() explicitly gates its native
+      // call UI on the app being backgrounded already) and via Android's own
+      // official docs, verbatim: "While the user is using the device, the
+      // system UI might display a heads-up notification instead of launching
+      // your full-screen intent." So the banner is Android's own platform
+      // behavior for the SDK's notification degrading to heads-up while this
+      // app is frontmost — and this app's JS layer independently renders its
+      // own ring screen on top via the live WebSocket, producing the
+      // duplicate. This flag is the SDK's own documented fix for exactly this:
+      // "incoming call push notifications (call.ring) will not be displayed
+      // as a notification when the app is in the foreground" — the JS layer's
+      // own IncomingCallScreen remains the sole UI in that case, which is
+      // already correct on its own. Not yet tested live.
+      skipIncomingPushInForeground: true,
     },
     createStreamVideoClient: getOrCreateClient,
   });
