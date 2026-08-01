@@ -12,9 +12,51 @@ answers in code, since that needs no phone access.
 confirmed GREEN this session** — was still compiling at session 29's end
 (`30681244746`), watched to completion here: succeeded in 31m17s. Both it and
 the iOS build (`e88b9a2`, `30677422826`) were downloaded locally and their
-GitHub Artifacts URLs handed to the user for on-device install; live-test
-results for either are **not yet known as of this write-up** — that's the
-user's side of the parallel work, still in progress.
+GitHub Artifacts URLs handed to the user for on-device install.
+
+**iOS `e88b9a2` live-tested by the user this session — 1 of 4 items
+confirmed fixed, the other 3 confirmed not fixed, but one of those 3 turned
+up a genuinely new, more precise finding, not just "still broken":**
+
+- **Stuck full-screen call screen (backgrounded, kiosk ends call) — ✅
+  CONFIRMED FIXED.** The highest-confidence fix of the three landed clean.
+- **Kiosk-reject → "Missed call" banner (`dbb56ca`, also rated high
+  confidence) — reported "not working," but the ACTUAL symptom is more
+  specific than a repeat of the original bug.** Asked the user directly what
+  they saw (per this project's own standing rule against assuming a table
+  entry): **the banner stays "Yap Family calling" until the user swipes it,
+  at which point it correctly shows "Missed call."** That is meaningfully
+  different from the pre-fix symptom (which never corrected at all, even
+  after interaction) — it means the Bark push `dbb56ca` sends almost
+  certainly IS landing with the right content (the swipe reveals it), but
+  iOS is not live-refreshing the visible text of a banner that's already
+  on-screen and un-dismissed. Checked whether this is documented iOS
+  behavior (WebSearch, 2026-08-01): found supporting-but-not-conclusive
+  material — collapse-ID-based APNs replacement is documented to replace
+  "immediately" for a *not-yet-displayed* notification, and nothing found
+  addresses same-identifier replacement of a notification that is already
+  rendered on-screen and undismissed specifically. This is consistent with
+  (not proof of) session 29's own finding that this exact class of question
+  is unanswered even on Apple's own developer forums. **Deployed code
+  (`dbb56ca`) is very likely working correctly at the data layer; the
+  remaining gap, if real, is an iOS rendering behavior outside this app's
+  control, not a backend logic bug.** Not chasing further this session —
+  no code lever identified, and this is now in the same "accepted platform
+  limitation" category as symptoms 1 and the banner/ringtone desync unless
+  further research turns up an actual API for it.
+- **Banner-over-call-screen (`CLEAR_BANNER_ON_SUPPRESS`) and foreground
+  duplicate (`RING_HOLD_MS` 1200→1800ms) — confirmed unchanged, no
+  improvement from either experiment.** User confirmed both look identical
+  to the pre-fix description, not a nuanced variant like the item above.
+  Both were already flagged "genuinely unverified" going in, so this is a
+  clean negative result, not a surprise. Per the original plan for both: no
+  further fix is queued from guessing — would need fresh investigation.
+  `CLEAR_BANNER_ON_SUPPRESS` is harmless even though it didn't help (passive
+  push, shouldn't itself alert) so left deployed rather than reverted:
+  reverting it gains nothing now that the swipe-reveal finding above
+  suggests the live-refresh limitation is the same one it was trying to work
+  around, i.e. it was very likely never going to be able to fix a category of
+  problem that isn't really a stale-payload problem.
 
 **Gemini's 4 Android answers, 3 implemented in `App.js` this session (NOT
 built or tested yet — no Android build dispatched for these changes):**
