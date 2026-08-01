@@ -105,28 +105,25 @@ if this ever needs revisiting.**
   are correct and working — the residual symptom is a genuine, sourced iOS
   platform ceiling.** Closing both rows in the status table as intentional
   limitations, not open bugs.
-- **Symptom C (banner/ringtone desync) — Gemini's proposed fix does NOT
-  apply to this project, caught by cross-checking against session 28's own
-  history before acting on it.** Gemini's mechanism (custom notification
-  sounds play up to 30s regardless of banner lifetime; a "Temporary" banner
-  auto-dismisses after ~5s while the sound keeps going) is plausible in
-  general, and its suggested fix was to set Bark's iOS Settings → Notifi-
-  cations → Bark → Banner Style to "Persistent". **Session 28 already
-  established this exact setting was already `Persistent` on the spare
-  iPhone**, investigating a related symptom (screen going black between
-  ring cycles) — and Gemini's OWN earlier-session answer at the time
-  concluded persistent-screen and remotely-stoppable are mutually exclusive
-  for plain notifications, full stop, needing real CallKit to get both.
-  So either (a) Banner Style has since reverted/changed on the spare and
-  needs re-checking live rather than assumed, or (b) "Persistent" style
-  does not actually prevent this specific banner-disappears-mid-ring
-  symptom the way this round's answer assumed, meaning the general
-  mechanism may be right but the specific remedy is not. **Not accepting
-  this as solved — asked the user to verify Bark's current Banner Style
-  setting live before acting on it either way**, since sending them to
-  re-check a setting already on record as correct, without first flagging
-  the contradiction, would be exactly the kind of ungrounded settings-hunt
-  standing rule 7 exists to prevent.
+- **Symptom C (banner/ringtone desync) — Gemini's proposed mechanism is now
+  DISPROVEN by a direct live A/B test, not just unconfirmed.** Gemini's
+  theory: custom notification sounds play up to 30s regardless of banner
+  lifetime, while a "Temporary" banner style auto-dismisses after ~5s,
+  producing exactly this desync — fix suggested was Bark's iOS Settings →
+  Notifications → Bark → Banner Style → "Persistent". Session 28's own
+  record already had this set to `Persistent` on the spare iPhone, so
+  before accepting the fix at face value the user was asked to verify
+  live rather than re-flip a setting already on record as correct (standing
+  rule 7). **User did better than that: confirmed it WAS `Persistent`
+  (session 28's record was right, nothing reverted), then switched it to
+  `Temporary` as a real A/B test — the desync was completely unchanged
+  either way.** If Gemini's mechanism were correct, `Temporary` should have
+  made it visibly worse or at least different; it didn't. This rules out
+  banner style as a factor at all, not just as an already-tried fix — the
+  desync is genuinely unexplained again, though still generally
+  corroborated by `Finb/Bark#256` (repeated/looping critical alerts losing
+  component sync). No further lever identified; not chasing blind at this
+  point.
 - **Symptom D (Bark UI flash correlates with companion app swipe state) —
   genuinely new, testable, code-grounded hypothesis, not yet confirmed.**
   Gemini: force-quitting the companion app means iOS shows its static
@@ -268,11 +265,11 @@ state (2026-08-01 repro, gathered directly from the user, not guessed).
 | Phone state | Symptom | Status | Plan |
 |---|---|---|---|
 | Locked | Sometimes opens to Bark's own Messages tab before the call screen | 🔶 **Gemini round 2 (2026-08-01): concrete, testable hypothesis, not solved.** Correlates with companion app swipe state because a force-quit app gets iOS's static LaunchScreen instantly (zero app work, so Bark's own UI never lingers), while a merely-backgrounded app must actually wake its JS thread/AppState/WebSocket before iOS completes the handoff — if that blocks the main thread 200-500ms, Bark stays visible for the wait. Ties directly to real resume-path code already read this session. | **Ask the user to watch closely on the next natural resume**: does a force-quit reopen show the static launch screen instantly the moment Bark disappears, vs. a backgrounded reopen showing a frozen/stale app snapshot with a beat before it responds? Confirms or denies before any code is written — not a Mac/Xcode-dependent check. |
-| Locked | Sometimes Bark banner sits on top of the just-opened call screen | ✅ **CLOSED 2026-08-01 — genuine, sourced iOS platform limitation, confirmed via Apple's own `UNNotificationRequest` docs (Gemini round 2), not a shrug.** Same-identifier replacement updates the data model `UNUserNotificationCenter` manages and the static Notification Center list — it does not force a live repaint of a banner SpringBoard has already painted and is mid-animation on. No API exists to do this outside real CallKit. This session's fix (`CLEAR_BANNER_ON_SUPPRESS`) is very likely working correctly; the residual symptom is the platform ceiling itself. | **None. Closed as intentional iOS behavior**, left deployed since harmless. |
-| Locked | Kiosk-reject leaves "Yap Family calling" banner instead of "Missed call" | ✅ **CLOSED 2026-08-01 — same root cause and same citation as the row above.** Banner stays "Yap Family calling" until swiped, then correctly shows "Missed call" — confirms the backend fix (`dbb56ca`) sends the right content; the swipe-to-reveal gap is the identical live-refresh ceiling, now sourced rather than inferred. | **None. Closed as intentional iOS behavior.** Functionally correct once revealed. |
+| **Any** (user corrected 2026-08-01: not locked-specific — happens across phone states, table miscategorized it) | Sometimes Bark banner sits on top of the just-opened call screen | ✅ **CLOSED 2026-08-01 — genuine, sourced iOS platform limitation, confirmed via Apple's own `UNNotificationRequest` docs (Gemini round 2), not a shrug.** Same-identifier replacement updates the data model `UNUserNotificationCenter` manages and the static Notification Center list — it does not force a live repaint of a banner SpringBoard has already painted and is mid-animation on. No API exists to do this outside real CallKit. Being phone-state-independent is actually consistent with this verdict — a SpringBoard rendering ceiling has no reason to care whether the screen is locked. This session's fix (`CLEAR_BANNER_ON_SUPPRESS`) is very likely working correctly; the residual symptom is the platform ceiling itself. | **None. Closed as intentional iOS behavior**, left deployed since harmless. |
+| **Any** (same correction as above) | Kiosk-reject leaves "Yap Family calling" banner instead of "Missed call" | ✅ **CLOSED 2026-08-01 — same root cause and same citation as the row above.** Banner stays "Yap Family calling" until swiped, then correctly shows "Missed call" — confirms the backend fix (`dbb56ca`) sends the right content; the swipe-to-reveal gap is the identical live-refresh ceiling, now sourced rather than inferred. | **None. Closed as intentional iOS behavior.** Functionally correct once revealed. |
 | Unlocked, app in foreground | Sometimes BOTH Bark AND the Yap Family call screen open (should be just the call screen) | ❌ **Live-tested 2026-08-01, still happens — but now genuinely diagnosed, not a guess.** Read the Fly backend's own logs for the exact test calls: 2 of 3 timed calls show the real Bark ring firing because the phone's heartbeat POST took 6–14s to reach the backend, not the ~1s the 1800ms margin assumed — the bump was irrelevant to a gap that size. Most likely cause: `App.js`'s full client-teardown-and-reconnect path (fires after >30s backgrounded) delaying `IncomingCallScreen` from mounting and heartbeating. **Not confirmed** — needs a debug-strip screenshot from a live slow instance. | **Get a debug-strip screenshot on the next occurrence**, specifically watching for a `resume: reconnecting after Xs bg` line right before the affected call. No code change until that confirms or rules out the reconnect theory. |
 | Unlocked, app in foreground | Ending call from kiosk | ✅ Works correctly, no issue | None needed. |
-| Unlocked, app backgrounded | Only Bark notification shows (correct), but mistimed: banner disappears while the ringtone keeps playing (audio/visual desync). Working correctly = banner stays on screen in sync with the sound. | 🔶 **Gemini round 2 (2026-08-01) proposed a mechanism (custom sounds play up to 30s regardless of banner lifetime; a "Temporary" banner style auto-dismisses ~5s in) and a fix (set Bark's Banner Style to Persistent) — but session 28 already established Banner Style was ALREADY `Persistent` on the spare iPhone while investigating a related symptom, and Gemini's OWN earlier answer at the time said persistent-screen and remotely-stoppable are mutually exclusive without real CallKit.** Caught by cross-checking against project history before acting — not accepting this round's answer as a fix without live re-verification. | **Ask the user to physically re-check Bark's current Banner Style setting live** before assuming either that it reverted or that "Persistent" doesn't actually prevent this specific symptom. Do not re-send them to flip a setting already on record as correct without resolving the contradiction first. |
+| Unlocked, app backgrounded | Only Bark notification shows (correct), but mistimed: banner disappears while the ringtone keeps playing (audio/visual desync). Working correctly = banner stays on screen in sync with the sound. | ❌ **Gemini round 2's proposed mechanism (banner-style-driven auto-dismiss timing) is now DISPROVEN, not just unconfirmed.** User ran the actual A/B test live on-device 2026-08-01: Banner Style was `Persistent` (matching session 28's record — that record was correct, nothing had reverted), switched it to `Temporary`, symptom unchanged either way. If the banner-lifetime-vs-30s-sound mechanism Gemini proposed were right, Temporary should have made the desync visibly worse or at least different — it didn't, at all. This rules out banner style as a factor entirely, not just as an already-tried fix. Back to genuinely unexplained; still corroborated at a general level by `Finb/Bark#256` (repeated/looping critical alerts losing sync across components), but the specific mechanism proposed for it is now known wrong. | **Nothing further planned** — the one concrete lever (banner style) is now conclusively ruled out by direct test, not assumption. Revisit only if new research finds a different, testable mechanism. |
 | Unlocked, app backgrounded | Ending call from kiosk silences the ring, but the Bark banner remains, AND opening the app shows a STUCK full-screen call screen that cannot be ended — errors with Stream error 103: `"reject call failed with error: Cannot accept/reject a call that is not in progress, did you call call.join, call.ring or call.notify before?"` | ✅ **FIXED (`e88b9a2`) — confirmed on-device 2026-08-01.** Root cause: `IncomingCallScreen.js`'s `decline()` only cleared the busy spinner when `reject()` failed, never forcing local state to LEFT, so the screen stayed classified as an incoming ring forever. Now falls back to `call.leave()`. | **Closed.** No further action. |
 | — | iOS heartbeat/timing fixes generally | Superseded by the specific symptoms above — don't chase this as a separate item | N/A — folded into the rows above. |
 | — | iOS missed-call handling | Superseded — this session's iOS work covers the actual reported symptoms above | N/A — folded into the rows above. |
