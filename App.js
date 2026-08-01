@@ -600,11 +600,29 @@ function StreamWrapper({ children }) {
           //
           // Anything that changes whether these prompts are still needed must bump
           // the suffix again; there is no way to read the grant state back from JS.
+          //
+          // Session 29: this whole IIFE previously had NO error handling — if
+          // either AsyncStorage call or either settings-launch step threw for any
+          // reason, the promise rejection was unhandled and silently swallowed the
+          // REST of the sequence, including the full-screen-intent prompt below.
+          // Reported live on a clean install: no full-screen-intent prompt at all,
+          // requiring a manual settings hunt — exactly what a silent failure here
+          // would produce, and this device had never exercised this exact fresh-
+          // install code path before. Each step now runs in its own try/catch and
+          // reports failure to the debug strip, so a failure here is visible
+          // instead of invisible, and one step failing no longer takes the next
+          // one down with it. Keys bumped to _v4/_v2b so this device (and anything
+          // else that silently failed before) gets re-prompted once.
           (async () => {
-            const batteryAsked = await AsyncStorage.getItem('setup_battery_opt_v2');
-            if (!batteryAsked) {
-              await AsyncStorage.setItem('setup_battery_opt_v2', '1');
-              await openBatteryOptimizationSettings();
+            try {
+              const batteryAsked = await AsyncStorage.getItem('setup_battery_opt_v2b');
+              if (!batteryAsked) {
+                await AsyncStorage.setItem('setup_battery_opt_v2b', '1');
+                await openBatteryOptimizationSettings();
+              }
+            } catch (err) {
+              console.warn('[setup] battery optimisation prompt failed:', err);
+              debugLog(`setup: battery opt prompt FAILED: ${err?.message ?? err}`);
             }
             // Android 14+ (targetSdk 34+) makes USE_FULL_SCREEN_INTENT a special app
             // access the user must toggle by hand — there is no API to grant it, and
@@ -616,23 +634,26 @@ function StreamWrapper({ children }) {
             // The most we can do is guide the user to the page. Just launching it
             // dropped them on a settings screen with no idea what to flip, so gate it
             // behind an Alert that says exactly which toggle to turn on, and only open
-            // the page once they acknowledge. Key bumped to _v3 so installs that
-            // already burned _v2 (before this explanatory step existed) get one more
-            // prompt.
-            const done = await AsyncStorage.getItem('setup_full_screen_intent_v3');
-            if (!done) {
-              await AsyncStorage.setItem('setup_full_screen_intent_v3', '1');
-              await new Promise(resolve => {
-                Alert.alert(
-                  'Let calls wake your phone',
-                  'On the next screen, turn ON "Allow full-screen notifications" ' +
-                    '(sometimes called "Full-screen intents") for Yap Family.\n\n' +
-                    'Without it, calls ring but the screen stays black.',
-                  [{ text: 'Open settings', onPress: resolve }],
-                  { cancelable: false },
-                );
-              });
-              await openFullScreenIntentSettings();
+            // the page once they acknowledge.
+            try {
+              const done = await AsyncStorage.getItem('setup_full_screen_intent_v4');
+              if (!done) {
+                await AsyncStorage.setItem('setup_full_screen_intent_v4', '1');
+                await new Promise(resolve => {
+                  Alert.alert(
+                    'Let calls wake your phone',
+                    'On the next screen, turn ON "Allow full-screen notifications" ' +
+                      '(sometimes called "Full-screen intents") for Yap Family.\n\n' +
+                      'Without it, calls ring but the screen stays black.',
+                    [{ text: 'Open settings', onPress: resolve }],
+                    { cancelable: false },
+                  );
+                });
+                await openFullScreenIntentSettings();
+              }
+            } catch (err) {
+              console.warn('[setup] full-screen-intent prompt failed:', err);
+              debugLog(`setup: full-screen-intent prompt FAILED: ${err?.message ?? err}`);
             }
           })();
         }
