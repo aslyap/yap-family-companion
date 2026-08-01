@@ -1,5 +1,86 @@
 # yap-family-companion — Session Handoff
 
+## Session 30 progress — Gemini's 3 actionable Android fixes implemented (untested), iOS/Android installs handed to the user in parallel
+
+Picked up session 29's handoff exactly as written (companion `f3dc793`, kiosk
+`79796d5` — both confirmed matching, no drift). Two tracks run in parallel per
+the user's choice: they install/test both builds on-device on their own
+schedule; this session went straight to implementing Gemini's 4 Android
+answers in code, since that needs no phone access.
+
+**Android build `29b2244` (ring/join revert + full-screen-intent fix)
+confirmed GREEN this session** — was still compiling at session 29's end
+(`30681244746`), watched to completion here: succeeded in 31m17s. Both it and
+the iOS build (`e88b9a2`, `30677422826`) were downloaded locally and their
+GitHub Artifacts URLs handed to the user for on-device install; live-test
+results for either are **not yet known as of this write-up** — that's the
+user's side of the parallel work, still in progress.
+
+**Gemini's 4 Android answers, 3 implemented in `App.js` this session (NOT
+built or tested yet — no Android build dispatched for these changes):**
+
+1. **Symptom 1 (banner-only unlocked+backgrounded)** — closed per Gemini,
+   confirmed intentional Android behaviour. No code change; nothing to do.
+2. **Symptom 2 (reappearing call loop)** — implemented as a **reconciliation-
+   side safety net**, not a patch to the SDK's own background reject path
+   (that's closed-source Kotlin inside `@stream-io/video-react-native-sdk`,
+   unreachable from this repo — confirmed no `node_modules` install exists
+   locally to even inspect it further, consistent with session 29's own note
+   that this lives partly in native code). Both `queryCalls` reconciliation
+   sites in `App.js` (`StreamWrapper`'s cold-connect site and its AppState-
+   resume site) now, after confirming a pending cid isn't in the live ringing
+   set, look up any stale call object still held in `client.state.calls` for
+   that cid and force `call.leave()` on it if it isn't already
+   `LEFT`/`endedAt` — mirroring the exact fallback pattern already proven in
+   `IncomingCallScreen.js`'s `decline()` catch block (`e88b9a2`, iOS, but
+   that file is shared code with no platform gate). This does not touch
+   whatever native Telecom gap Gemini described directly (can't, from JS) —
+   it's a belt-and-suspenders local teardown for the case where the SDK's own
+   background handling left a phantom call object lying around long enough
+   for one of these two reconciliation checks to see it.
+3. **Symptom 3 (foreground double-UI)** — implemented as the architecture
+   change Gemini specified: `CallOverlay` now tracks `AppState.currentState`
+   and, on Android only, skips rendering its own `IncomingCallScreen` while
+   the app is foregrounded (`suppressJsRingScreen`), leaving the native
+   heads-up banner as the only incoming-ring UI in that state. No separate
+   "listen for native Accept" plumbing was added — tapping the banner's
+   Accept already drives the SDK's `callingState` to `JOINING`/`JOINED` the
+   same way a locked-screen accept does, and `CallOverlay`'s existing
+   `active` filter already matches those states regardless of foreground
+   state, so it transitions to `ActiveCallScreen` on its own. `showingCall`
+   and the missed-call/`ringOutcomeRef` bookkeeping deliberately still key off
+   `incomingRingCall`'s presence, not off whether it's rendered — suppressing
+   the UI must not suppress missed-call detection for a call that rang out
+   while foregrounded and ignored.
+4. **Symptom 4 (~20s spin before Accept works)** — implemented exactly as
+   specified: both `queryCalls` reconciliation sites now check
+   `isAccepting(pendingCid)` (`src/acceptState.js`, the same
+   `markAccepting`/`isAccepting` pattern already guarding double-`join()` in
+   `IncomingCallScreen.js`) before clearing the pending-call cover, and skip
+   clearing if an accept is genuinely in flight for that cid — mirroring
+   `CallOverlay`'s own `incomingRingCall` filter, which already excludes
+   accepting calls the same way.
+
+**None of this is tested. No Android build has been dispatched for these
+changes** — the corrected build already in the user's hands (`29b2244`) does
+NOT contain them. Old standing rule 6/8 from sessions 26-28 ("do NOT dispatch
+an Android build") is treated as superseded — session 29 itself dispatched
+two Android builds once live Android testing became active, and this
+session's kickoff explicitly asked for Gemini's fixes to be implemented. Not
+re-dispatching a build automatically here though, since the user is mid-test
+on the just-confirmed-working `29b2244` build — **ask before dispatching a
+new Android build with these changes**, so a fresh install doesn't land while
+they're still confirming the ring-sound/Accept/full-screen-intent regressions
+are actually fixed on the current one.
+
+**Next steps, in order:** (1) get the user's on-device results for both
+platform installs already handed off; (2) once `29b2244`'s regression
+re-tests are confirmed good, dispatch a new Android build with this
+session's 3 changes and live-test symptoms 2/3/4 specifically (the
+reappearing-call loop, the foreground double-UI, and the ~20s Accept spin);
+(3) still waiting on a repro for the Oppo missed-call-handling report — ask,
+don't guess, same standing rule as session 29.
+
 ## Session 29 progress — iOS mostly root-caused and fixed (build ready to install), Android deeply investigated with concrete Gemini-confirmed fixes queued, none implemented yet
 
 Picked up the kickoff below (session 28, 2026-07-31). Ended at companion

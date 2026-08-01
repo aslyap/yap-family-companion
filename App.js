@@ -82,6 +82,31 @@ function CallOverlay() {
   const calls = useCalls();
   const { identity } = useIdentity();
 
+  // Session 30, Android only: while the app is foregrounded, let the native
+  // heads-up banner own incoming-ring presentation instead of also rendering
+  // this component's own full-screen IncomingCallScreen underneath/alongside
+  // it. Root cause (confirmed via Android's own docs — see TODO.md): Android
+  // degrades the SDK's setFullScreenIntent() notification to a heads-up
+  // banner rather than auto-launching over an app that's already in the
+  // foreground, while this component independently renders its own ring
+  // screen off the live WebSocket regardless of foreground state — two
+  // individually-correct paths colliding in exactly this one state.
+  // `skipIncomingPushInForeground` looked like the fix but suppresses the
+  // SAME notification object that carries the ring sound and the Telecom
+  // registration, not just the visual banner (see index.js) — breaking sound
+  // and call-joining, not just hiding a duplicate. Not suppressing anything
+  // native here, only skipping this component's own competing render:
+  // tapping the banner's own Accept still drives the SDK's callingState to
+  // JOINING/JOINED the same way a locked-screen accept does, which `active`
+  // below already matches — no separate "listen for native Accept" plumbing
+  // needed, just getting out of its way.
+  const [appState, setAppState] = useState(AppState.currentState);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', setAppState);
+    return () => sub.remove();
+  }, []);
+  const suppressJsRingScreen = Platform.OS === 'android' && appState === 'active';
+
   // Calls we initiated — useCalls() may track them as RINGING (before kiosk accepts)
   // or JOINED/JOINING (after kiosk accepts).
   const outgoingRinging = calls.find(
@@ -243,7 +268,7 @@ function CallOverlay() {
       </View>
     );
   }
-  if (incomingRingCall) {
+  if (incomingRingCall && !suppressJsRingScreen) {
     return (
       <View style={StyleSheet.absoluteFillObject}>
         <StreamCall call={incomingRingCall}>
@@ -560,8 +585,37 @@ function StreamWrapper({ children }) {
                 .then(res => {
                   const pendingCid = getPendingCid();
                   if (pendingCid && !res.calls.some(call => call.cid === pendingCid)) {
+                    // Session 30: an in-flight accept wins over this reconciliation.
+                    // The SDK's ringing array can momentarily drop a call mid-join
+                    // (a WebSocket update racing the join finishing — see
+                    // acceptState.js), and this reconciliation reading that as "not
+                    // ringing" and clearing the cover out from under a genuine
+                    // accept is the ~20s-spin-then-second-tap-works bug: the first
+                    // tap's join was still in flight when the cover (and the real
+                    // IncomingCallScreen under it) got cleared.
+                    if (isAccepting(pendingCid)) {
+                      debugLog(`pending cid ${pendingCid.slice(-10)} not in ringing calls on resume — accept in flight, not clearing`);
+                      return;
+                    }
                     debugLog(`pending cid ${pendingCid.slice(-10)} not in ringing calls on resume — clearing cover`);
                     clearCallPending();
+                    // Mirrors e88b9a2 (iOS): the server confirming this call isn't
+                    // ringing doesn't guarantee the native Telecom Connection was
+                    // torn down. The SDK's own background reject can fail against a
+                    // call the kiosk already ended server-side (same Stream-error-
+                    // 103 race fixed in IncomingCallScreen.js's decline()), leaving
+                    // a phantom Connection that resurfaces the call screen later.
+                    // Force a local leave() on whatever call object this client
+                    // still holds for that cid, rather than leaving Telecom teardown
+                    // dependent on a background API call that may have already
+                    // failed.
+                    const stale = c.state?.calls?.find(call => call.cid === pendingCid);
+                    if (stale && stale.state.callingState !== CallingState.LEFT && !stale.state.endedAt) {
+                      stale.leave().then(
+                        () => debugLog(`forced leave (stale on resume) ok: ${pendingCid.slice(-10)}`),
+                        err => debugLog(`forced leave (stale on resume) FAILED: ${err?.message ?? err}`),
+                      );
+                    }
                   }
                 })
                 .catch(err => console.warn('[Stream] resume queryCalls failed:', err));
@@ -683,8 +737,26 @@ function StreamWrapper({ children }) {
           .then(res => {
             const pendingCid = getPendingCid();
             if (pendingCid && !res.calls.some(call => call.cid === pendingCid)) {
+              // Session 30: same in-flight-accept guard as the resume site above —
+              // see the comment there for why this reconciliation can false-negative
+              // a call that is genuinely still being joined.
+              if (isAccepting(pendingCid)) {
+                debugLog(`pending cid ${pendingCid.slice(-10)} not in ringing calls on reconnect — accept in flight, not clearing`);
+                return;
+              }
               debugLog(`pending cid ${pendingCid.slice(-10)} not in ringing calls on reconnect — clearing cover`);
               clearCallPending();
+              // Mirrors e88b9a2 (iOS) — see the resume site above for the full
+              // reasoning. Force local teardown of any stale call object this
+              // client still holds, rather than trusting a background reject that
+              // may have already failed server-side.
+              const stale = c.state?.calls?.find(call => call.cid === pendingCid);
+              if (stale && stale.state.callingState !== CallingState.LEFT && !stale.state.endedAt) {
+                stale.leave().then(
+                  () => debugLog(`forced leave (stale on reconnect) ok: ${pendingCid.slice(-10)}`),
+                  err => debugLog(`forced leave (stale on reconnect) FAILED: ${err?.message ?? err}`),
+                );
+              }
             }
           })
           .catch(err => console.warn('[StreamWrapper] queryCalls failed:', err));
