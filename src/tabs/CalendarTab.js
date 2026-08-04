@@ -63,6 +63,14 @@ const MONTH_NAMES   = ['January','February','March','April','May','June',
                        'July','August','September','October','November','December'];
 const WEEKDAY_SHORT = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
+// Same ids/convention as TasksTab.js's recurring day picker.
+const WEEKDAYS = [
+  { id: 'mon', label: 'Mo' }, { id: 'tue', label: 'Tu' },
+  { id: 'wed', label: 'We' }, { id: 'thu', label: 'Th' },
+  { id: 'fri', label: 'Fr' }, { id: 'sat', label: 'Sa' },
+  { id: 'sun', label: 'Su' },
+];
+
 // ─── pure helpers ─────────────────────────────────────────────────────────────
 
 function todayStr() {
@@ -638,7 +646,18 @@ function EventSheet({ visible, mode, event, defaultDate, onClose, onSaved, onDel
   const [saving,    setSaving]    = useState(false);
   const [error,     setError]     = useState('');
 
+  // Recurring — add mode only, mirrors TasksTab.js's exact convention (no
+  // days selected = daily). Editing recurrence on an existing series isn't
+  // built here; edit mode only ever touches a single event's own fields.
+  const [recurring,     setRecurring]     = useState(false);
+  const [selectedDays,  setSelectedDays]  = useState([]);
+  const [recurEndDate,  setRecurEndDate]  = useState('');
+
   const isEdit = mode === 'edit';
+
+  function toggleDay(day) {
+    setSelectedDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
+  }
 
   useEffect(() => {
     if (visible) {
@@ -658,6 +677,9 @@ function EventSheet({ visible, mode, event, defaultDate, onClose, onSaved, onDel
         setEndTime('10:00');
         setPersons(['maddie']);
         setLocation('');
+        setRecurring(false);
+        setSelectedDays([]);
+        setRecurEndDate('');
       }
     }
   }, [visible]);
@@ -699,7 +721,12 @@ function EventSheet({ visible, mode, event, defaultDate, onClose, onSaved, onDel
           location: location.trim(),
         });
       } else {
-        await createCalendarEvent({ persons, title: title.trim(), startISO, endISO, location: location.trim() });
+        await createCalendarEvent({
+          persons, title: title.trim(), startISO, endISO, location: location.trim(),
+          recurring,
+          recurrenceDays: recurring ? selectedDays : null,
+          recurrenceEndDate: recurring && recurEndDate ? recurEndDate : null,
+        });
       }
       onSaved?.();
       onClose();
@@ -794,6 +821,58 @@ function EventSheet({ visible, mode, event, defaultDate, onClose, onSaved, onDel
               <Text style={styles.navArrow}>›</Text>
             </TouchableOpacity>
           </View>
+
+          {!isEdit && (
+            <>
+              <Text style={styles.fieldLabel}>TYPE</Text>
+              <View style={styles.toggleRow}>
+                <TouchableOpacity
+                  style={[styles.toggleBtn, !recurring && styles.toggleBtnActive]}
+                  onPress={() => setRecurring(false)}
+                >
+                  <Text style={[styles.toggleBtnText, !recurring && styles.toggleBtnTextActive]}>One-off</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.toggleBtn, recurring && styles.toggleBtnActive]}
+                  onPress={() => setRecurring(true)}
+                >
+                  <Text style={[styles.toggleBtnText, recurring && styles.toggleBtnTextActive]}>Recurring</Text>
+                </TouchableOpacity>
+              </View>
+
+              {recurring && (
+                <>
+                  <Text style={styles.fieldLabel}>REPEATS</Text>
+                  <View style={styles.daysRow}>
+                    <TouchableOpacity
+                      style={[styles.dayBtn, styles.dayBtnDaily, selectedDays.length === 0 && styles.dayBtnActive]}
+                      onPress={() => setSelectedDays([])}
+                    >
+                      <Text style={[styles.dayBtnText, selectedDays.length === 0 && styles.dayBtnTextActive]}>Daily</Text>
+                    </TouchableOpacity>
+                    {WEEKDAYS.map(d => (
+                      <TouchableOpacity
+                        key={d.id}
+                        style={[styles.dayBtn, selectedDays.includes(d.id) && styles.dayBtnActive]}
+                        onPress={() => toggleDay(d.id)}
+                      >
+                        <Text style={[styles.dayBtnText, selectedDays.includes(d.id) && styles.dayBtnTextActive]}>{d.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <Text style={styles.fieldLabel}>END DATE <Text style={styles.optional}>(optional)</Text></Text>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={COLORS.textSecondary}
+                    value={recurEndDate}
+                    onChangeText={setRecurEndDate}
+                  />
+                </>
+              )}
+            </>
+          )}
 
           <View style={styles.timeRow}>
             <View style={{ flex: 1 }}>
@@ -1262,6 +1341,24 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary, marginBottom: 6, marginTop: 16,
   },
   optional: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.textSecondary, letterSpacing: 0, textTransform: 'none' },
+  // Recurring event UI — same values as TasksTab.js's toggle/day-picker styles.
+  toggleRow: { flexDirection: 'row', gap: 8 },
+  toggleBtn: {
+    flex: 1, borderWidth: 1, borderColor: COLORS.border, borderRadius: 10,
+    paddingVertical: 10, alignItems: 'center', justifyContent: 'center', minHeight: 44,
+  },
+  toggleBtnActive: { backgroundColor: COLORS.family, borderColor: COLORS.family },
+  toggleBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.text },
+  toggleBtnTextActive: { color: '#fff' },
+  daysRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  dayBtn: {
+    width: 38, height: 38, borderWidth: 1, borderColor: COLORS.border,
+    borderRadius: 8, alignItems: 'center', justifyContent: 'center',
+  },
+  dayBtnDaily: { width: 52 },
+  dayBtnActive: { backgroundColor: COLORS.family, borderColor: COLORS.family },
+  dayBtnText: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.text },
+  dayBtnTextActive: { color: '#fff', fontFamily: FONTS.bodyMedium },
   textInput: {
     fontFamily: FONTS.body, fontSize: 16, color: COLORS.text,
     borderWidth: 1, borderColor: COLORS.border, borderRadius: 8,

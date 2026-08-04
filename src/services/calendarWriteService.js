@@ -10,16 +10,25 @@ function _broadcastChange() {
 
 // Create one event per person in their respective Google Calendar.
 // persons: array of 'maddie' | 'alex' | 'marj' | 'family'
-// event: { title, startISO, endISO, location? }
+// event: { title, startISO, endISO, location?, recurring?, recurrenceDays?, recurrenceEndDate? }
 // startISO / endISO: full ISO datetime with offset e.g. "2026-06-14T09:00:00+08:00"
-export async function createCalendarEvent({ persons, title, startISO, endISO, location = '' }) {
+// recurrenceDays: same convention as tasksService.js — array like ['mon','wed'], empty/null = daily
+export async function createCalendarEvent({
+  persons, title, startISO, endISO, location = '',
+  recurring = false, recurrenceDays = null, recurrenceEndDate = null,
+}) {
   if (!persons || persons.length === 0) throw new Error('At least one person required');
   const results = await Promise.all(
     persons.map(person =>
       fetch(`${BACKEND_URL}/api/calendar/events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ person, title, startISO, endISO, location }),
+        body: JSON.stringify({
+          person, title, startISO, endISO, location,
+          recurring,
+          recurrence_days: recurring ? recurrenceDays : null,
+          recurrence_end_date: recurring ? recurrenceEndDate : null,
+        }),
       }).then(async r => {
         if (!r.ok) {
           const text = await r.text();
