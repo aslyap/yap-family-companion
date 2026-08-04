@@ -1,6 +1,6 @@
 # yap-family-companion — Session Handoff
 
-## Session 31 progress — iOS delete-push fix shipped and confirmed working unlocked (locked case root-caused, upstream Bark PR is the plan); Android live-test caught and fixed a real regression in session 30's reappearing-call safety net
+## Session 31 progress — full weekend log (2026-08-01 to 2026-08-04): iOS delete-push fixed unlocked, Android force-leave regression found+fixed twice but still untested, kiosk monitor/soundbar/voice-search fixes, recurring events feature built end-to-end. **Read the "Weekend status recap" section partway down for the actual current state — the day-by-day log below it is history, not a to-do list.**
 
 Picked up session 30's handoff exactly as written (companion `1dfee6f`, kiosk
 `79796d5` — both confirmed matching, no drift, `git pull` on both a no-op).
@@ -234,13 +234,115 @@ this session, not just the one it was first caught in — further testing on
 this build isn't reliable signal. Next: build and ship the widened fix,
 then resume Test 3/4 clean.
 
-**End of session 31: new Android build dispatched, not yet installed.**
-Companion `main` = `5e2a496` (includes the `STALE_LEAVE_GRACE_MS` fix, both
-revisions), kiosk `main` = `19ee582` (both iOS delete-push fixes, deployed
-live to Fly). Build run:
-https://github.com/aslyap/yap-family-companion/actions/runs/30699420175 —
-check it's green before installing (was still queued/running when this
-session ended). Artifact will be `yap-family-companion-apk` once complete.
+**End of session 31, checkpoint (superseded below): new Android build
+dispatched, not yet installed.** Companion `main` = `5e2a496` (includes the
+`STALE_LEAVE_GRACE_MS` fix, both revisions), kiosk `main` = `19ee582` (both
+iOS delete-push fixes, deployed live to Fly). Build run:
+https://github.com/aslyap/yap-family-companion/actions/runs/30699420175.
+
+---
+
+## Weekend status recap (2026-08-01 through 2026-08-04) — read this first,
+it's the actual current state, not any single day's snapshot above
+
+Session 31 ran across the whole weekend in one continuous thread. Rather
+than re-derive it from the day-by-day log above, here's where every thread
+actually stands as of now:
+
+**iOS (Bark/delete-push banner fixes):**
+- **Unlocked (foreground or background): both reopened symptoms FIXED,
+  confirmed live, deployed.** Banner-over-call-screen and kiosk-reject →
+  "Missed call" both work correctly now.
+- **Locked: still fails.** Root-caused via Gemini round 4 (real citation,
+  Apple's own background-notification docs) — iOS won't grant the delete
+  push background execution time while locked, independent of Background
+  App Refresh (confirmed ON). Real fix needs a `UNNotificationServiceExtension`
+  in a forked Bark build; parked after finding the fork would need its own
+  Apple-granted Critical Alert entitlement (real risk of losing critical-
+  ring capability entirely, for an uncertain payoff). **Decision: try a
+  low-cost upstream PR to `Finb/Bark` first, fall back to accepting as a
+  platform limitation if that goes nowhere. PR NOT filed yet** — still an
+  open task, nobody's blocked on it.
+
+**Android:**
+- `29b2246a` baseline (ring sound, Accept/join, full-screen-intent prompt):
+  confirmed still good.
+- **Reappearing-call loop:** session 30's safety net had a real
+  false-positive regression — found via debug strip across 4 live calls
+  (33ms to 4878ms), fixed twice (5s grace period, then widened to 10s).
+  **NEVER actually retested on a real build** — the `5e2a496` build got
+  dispatched at the end of session 31's Saturday leg but the session moved
+  on to iOS/kiosk work instead of installing and confirming it. **This is
+  the single biggest untested item coming out of the whole weekend.**
+- **Test 3 (foreground double-UI) and Test 4 (~20s Accept spin): still
+  never cleanly tested.** Both attempts this weekend were contaminated by
+  the force-leave bug firing mid-accept on the same test calls.
+- **Oppo missed-call handling: still no repro gathered**, three sessions
+  running now. Ask directly, don't guess.
+- A brand-new combined build was just dispatched (see bottom of this
+  section) — this is the one to actually install and run the full test
+  order on, clean, next session.
+
+**Kiosk (Beelink, `yap-kiosk-setup` repo):**
+- **Monitor off/on 7am collision — FIXED, confirmed live.** Yap-Monitor-Off's
+  self-heal repeat landed its last tick at exactly the same instant
+  Yap-Monitor-On fired (confirmed via `07:00:02` appearing for both, two
+  mornings running) — screen went back off the instant it turned on. Ends
+  5 minutes early now (`PT9H55M`, live-verified on the actual scheduled
+  task via `schtasks /query`, not just the source file).
+- **Monitor-wake now relaunches the kiosk window fresh — FIXED, live-tested.**
+  Closes and relaunches Edge (sidesteps a foreground-lock fight rather than
+  winning it) so 7am reliably lands on Home, foregrounded, regardless of
+  what was left open overnight.
+- **Soundbar-connect visible flash — genuinely unresolved, 3 rounds this
+  weekend, none fully fixed it:**
+  - v1 (already existed): long visible window (polls after launch).
+  - v2 (promoted to production this weekend): cuts it to ~120-165ms via a
+    `SetWinEventHook` reacting before launch completes. Real improvement,
+    still visibly flashes.
+  - v3 (prototype, NOT in production): alpha=0 + off-screen + broadened
+    process filter — tested twice live, still flashed, and the broadened
+    filter's own diagnostic log raised a new mystery (never once caught the
+    actual `ApplicationFrameWindow`, only IME/OLE helper windows, yet the
+    flash still happened).
+  - **A real, separate, now-fixed bug was found in the process of testing
+    this:** the soundbar's health-check trigger fires once per app
+    lifetime regardless of active tab, and could race a fresh kiosk-window
+    startup badly enough to make the ENTIRE ~13s Bluetooth reconnect fully
+    visible (not just a flash) — this is fixed (8s startup delay,
+    `f9ab861`) and is more important than the cosmetic v1/v2/v3 saga.
+  - **A Gemini research prompt is written and ready** (three concrete
+    technical questions: does `ApplicationFrameHost` sometimes reuse an
+    existing window instance in a way that skips `EVENT_OBJECT_CREATE`; is
+    this a DWM launch-animation operating on a snapshot independent of the
+    window's live state; is a Virtual Desktop or
+    `IApplicationActivationManager` approach more reliable than reactive
+    hiding entirely) — **not sent yet.** v2 stays in production either way;
+    this is a cosmetic-only open item, nothing is blocked on it.
+- **Voice search trailing period — FIXED, deployed.** Browser's own speech
+  engine auto-punctuates; stripped before display/search.
+- **Recurring events feature — built end-to-end this weekend, needs a
+  fresh app build to reach the phone (not automatic like the dashboard/
+  backend deploys).** Backend (`1ef324d`, deployed to Fly, confirmed live
+  via `/openapi.json`) accepts `recurring`/`recurrence_days`/
+  `recurrence_end_date` on event creation, translated into a real Google
+  Calendar RRULE — reading already worked (`singleEvents=true` already
+  requested, Google expands instances natively). Companion app's Add Event
+  sheet (`0c3751d`) now has the same One-off/Recurring toggle + day picker
+  + optional end date that Tasks already has, add-mode only. **Not tested
+  on-device yet** — needs the new build below.
+
+**End of session, all three repos pushed. New combined Android + iOS
+builds dispatched (both companion `main` = `0c3751d` — includes the
+recurring-events UI on top of everything from the Saturday leg):**
+- Android: https://github.com/aslyap/yap-family-companion/actions/runs/30879926764
+- iOS: https://github.com/aslyap/yap-family-companion/actions/runs/30879928361
+
+Check both are green before installing — neither was confirmed complete as
+of this note. Kiosk repo (`yap-kiosk-setup`) at `472ce8f`, dashboard repo
+(`yap-family-home`) at `1ef324d`, both already deployed/live where
+applicable (Fly backend confirmed; Vercel dashboard assumed auto-deployed
+from push, not independently re-verified this session).
 
 ## Session 30 progress — Gemini's 3 actionable Android fixes implemented (untested), iOS/Android installs handed to the user in parallel
 
