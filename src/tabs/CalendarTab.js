@@ -631,6 +631,113 @@ function TimePicker({ value, onChange }) {
   );
 }
 
+// ─── EndDatePicker ────────────────────────────────────────────────────────────
+// Tap-to-expand inline calendar for the recurring-event end date, replacing a
+// typed YYYY-MM-DD field. Deliberately reuses MonthView's grid helpers and
+// "today"/"selected" colours (COLORS.timeIndicator / COLORS.family) instead of
+// inventing a second calendar look — same ‹ › month-nav language as the DATE
+// row above it in this same sheet.
+
+function EndDatePicker({ value, onChange }) {
+  const initial = value ? new Date(value + 'T12:00:00') : new Date();
+  const [open, setOpen] = useState(false);
+  const [viewYear, setViewYear] = useState(initial.getFullYear());
+  const [viewMonth0, setViewMonth0] = useState(initial.getMonth());
+
+  const today = todayStr();
+  const grid = getMonthGrid(viewYear, viewMonth0);
+  const monthLabel = new Date(viewYear, viewMonth0, 1)
+    .toLocaleDateString('en-SG', { month: 'long', year: 'numeric' })
+    .toUpperCase();
+
+  function changeMonth(delta) {
+    let y = viewYear, m = viewMonth0 + delta;
+    if (m < 0) { m = 11; y -= 1; }
+    if (m > 11) { m = 0; y += 1; }
+    setViewYear(y);
+    setViewMonth0(m);
+  }
+
+  function selectDay(ds) {
+    onChange(ds);
+    setOpen(false);
+  }
+
+  return (
+    <View>
+      <TouchableOpacity
+        style={[styles.enddateField, open && styles.enddateFieldOpen]}
+        onPress={() => setOpen(o => !o)}
+        activeOpacity={0.7}
+      >
+        <Text style={[styles.enddateValue, !!value && styles.enddateValueSet]}>
+          {value
+            ? new Date(value + 'T12:00:00').toLocaleDateString('en-SG', {
+                weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+              })
+            : 'Add end date'}
+        </Text>
+        <Text style={styles.enddateChevron}>{open ? '▲' : '▼'}</Text>
+      </TouchableOpacity>
+
+      {open && (
+        <View style={styles.calPanel}>
+          <View style={styles.calMonthRow}>
+            <TouchableOpacity onPress={() => changeMonth(-1)} hitSlop={10}>
+              <Text style={styles.calArrow}>‹</Text>
+            </TouchableOpacity>
+            <Text style={styles.calMonthLabel}>{monthLabel}</Text>
+            <TouchableOpacity onPress={() => changeMonth(1)} hitSlop={10}>
+              <Text style={styles.calArrow}>›</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.calGrid}>
+            {WEEKDAY_SHORT.map(d => (
+              <Text key={d} style={[styles.calWeekday, { width: MONTH_CELL_W }]}>{d.slice(0, 2)}</Text>
+            ))}
+            {grid.map((ds, i) => {
+              const d       = new Date(ds + 'T12:00:00');
+              const inMonth = d.getMonth() === viewMonth0;
+              const isToday = ds === today;
+              const isSel   = ds === value;
+              return (
+                <TouchableOpacity
+                  key={i}
+                  style={[styles.calDayCell, { width: MONTH_CELL_W }]}
+                  onPress={() => selectDay(ds)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[
+                    styles.calDayCircle,
+                    isToday && styles.calDayToday,
+                    isSel && !isToday && styles.calDaySelected,
+                  ]}>
+                    <Text style={[
+                      styles.calDayText,
+                      !inMonth && styles.calDayOtherMonth,
+                      (isToday || isSel) && styles.calDayTextOnColor,
+                    ]}>
+                      {d.getDate()}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <View style={styles.calFooter}>
+            <TouchableOpacity onPress={() => { onChange(''); setOpen(false); }} disabled={!value}>
+              <Text style={[styles.calClear, !value && styles.calClearDisabled]}>Clear end date</Text>
+            </TouchableOpacity>
+            <Text style={styles.calHint}>tap a date to set it</Text>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
 // ─── EventSheet ───────────────────────────────────────────────────────────────
 // mode='add': create new event
 // mode='edit': edit/delete existing event (pass event prop)
@@ -737,26 +844,42 @@ function EventSheet({ visible, mode, event, defaultDate, onClose, onSaved, onDel
     }
   }
 
+  function doDelete(eventId) {
+    return async () => {
+      setSaving(true);
+      try {
+        await deleteCalendarEvent({ eventId, person: event.person });
+        onDeleted?.();
+        onClose();
+      } catch (e) {
+        setError(e.message || 'Failed to delete');
+        setSaving(false);
+      }
+    };
+  }
+
   function handleDelete() {
+    // recurringEventId is only set on an expanded instance of a recurring event
+    // (see calendarService.js) — its own id deletes just this occurrence, deleting
+    // by recurringEventId (the series' master id) removes the whole series.
+    if (event?.recurringEventId) {
+      Alert.alert(
+        'Delete Recurring Event',
+        `"${event?.title}" repeats. Delete just this event, or every event in the series?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'This event', style: 'destructive', onPress: doDelete(event.id) },
+          { text: 'All events in series', style: 'destructive', onPress: doDelete(event.recurringEventId) },
+        ]
+      );
+      return;
+    }
     Alert.alert(
       'Delete Event',
       `Delete "${event?.title}"?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete', style: 'destructive',
-          onPress: async () => {
-            setSaving(true);
-            try {
-              await deleteCalendarEvent({ eventId: event.id, person: event.person });
-              onDeleted?.();
-              onClose();
-            } catch (e) {
-              setError(e.message || 'Failed to delete');
-              setSaving(false);
-            }
-          },
-        },
+        { text: 'Delete', style: 'destructive', onPress: doDelete(event.id) },
       ]
     );
   }
@@ -862,13 +985,12 @@ function EventSheet({ visible, mode, event, defaultDate, onClose, onSaved, onDel
                   </View>
 
                   <Text style={styles.fieldLabel}>END DATE <Text style={styles.optional}>(optional)</Text></Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor={COLORS.textSecondary}
-                    value={recurEndDate}
-                    onChangeText={setRecurEndDate}
-                  />
+                  {/* Modal keeps EventSheet mounted across visibility toggles (see the
+                      visible-effect above resetting the other fields by hand), so this
+                      is keyed to force a fresh mount each time the sheet reopens — the
+                      alternative is EndDatePicker silently reopening on a stale month
+                      from the last time it was used. */}
+                  <EndDatePicker key={visible} value={recurEndDate} onChange={setRecurEndDate} />
                 </>
               )}
             </>
@@ -1364,6 +1486,49 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.border, borderRadius: 8,
     paddingHorizontal: 14, paddingVertical: 12, backgroundColor: COLORS.surface,
   },
+  // ─── EndDatePicker ──
+  enddateField: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 12, backgroundColor: COLORS.surface,
+  },
+  enddateFieldOpen: { borderColor: COLORS.family },
+  enddateValue: { fontFamily: FONTS.body, fontSize: 15, color: COLORS.textSecondary },
+  enddateValueSet: { color: COLORS.text, fontFamily: FONTS.bodyMedium },
+  enddateChevron: { fontSize: 11, color: COLORS.textSecondary },
+  calPanel: {
+    borderWidth: 1, borderColor: COLORS.border, borderTopWidth: 0,
+    borderBottomLeftRadius: 8, borderBottomRightRadius: 8,
+    paddingHorizontal: 10, paddingTop: 8, paddingBottom: 10,
+  },
+  calMonthRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 6,
+  },
+  calArrow: { fontFamily: FONTS.body, fontSize: 16, color: COLORS.alex, paddingHorizontal: 10 },
+  calMonthLabel: { fontFamily: FONTS.heading, fontSize: 11, letterSpacing: 0.5, color: COLORS.text },
+  calGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  calWeekday: {
+    fontFamily: FONTS.heading, fontSize: 10, letterSpacing: 0.5,
+    color: COLORS.textSecondary, textAlign: 'center', paddingBottom: 4,
+  },
+  calDayCell: { alignItems: 'center', paddingVertical: 3 },
+  calDayCircle: {
+    width: 26, height: 26, borderRadius: 13,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  calDayToday: { backgroundColor: COLORS.timeIndicator },
+  calDaySelected: { backgroundColor: COLORS.family },
+  calDayText: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.text },
+  calDayOtherMonth: { color: COLORS.border },
+  calDayTextOnColor: { color: '#fff', fontFamily: FONTS.headingBold },
+  calFooter: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border,
+  },
+  calClear: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.family },
+  calClearDisabled: { color: COLORS.border },
+  calHint: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.textSecondary },
   dateRow: {
     flexDirection: 'row', alignItems: 'center',
     borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, backgroundColor: COLORS.surface,

@@ -8,7 +8,7 @@ function cacheKey(start, end) {
 }
 
 // Returns flat events array for a date range.
-// Each event: { id, person (lowercase key), title, startTime, endTime, allDay, color, description, location }
+// Each event: { id, person (lowercase key), title, startTime, endTime, allDay, color, description, location, recurringEventId }
 // person values: 'maddie' | 'alex' | 'marj' | 'mum' | 'dad' | 'family'
 export async function fetchCalendarEventsForRange(startStr, endStr) {
   const key = cacheKey(startStr, endStr);
@@ -34,6 +34,9 @@ export async function fetchCalendarEventsForRange(startStr, endStr) {
     color:       ev.color || '#8A8A8A',
     description: ev.description || '',
     location:    ev.location || '',
+    // Set only on an expanded instance of a recurring event — points at the
+    // series' master id, so a delete-scope choice can target the whole series.
+    recurringEventId: ev.recurringEventId || null,
   }));
 
   _cache[key] = { data, fetchedAt: Date.now() };
