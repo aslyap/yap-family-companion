@@ -1,5 +1,87 @@
 # yap-family-companion — Session Handoff
 
+## Session 32 progress — setup-prompt regression root-caused structurally, recurring-events UI shipped from live feedback, Kath's-phone debug-free build + full install plan written
+
+Picked up session 31's handoff exactly as written (companion `74fd535`,
+dashboard `1ef324d`, kiosk `472ce8f` — all three confirmed matching, no
+drift). Both dispatched builds from session 31's end confirmed green first
+(Android `30879926764`, iOS `30879928361`) before anything else.
+
+**Android full retest deferred AGAIN — but caught before it happened this
+time.** User asked to install the build and start testing; quiet hours
+(21:00 SGT) were already in effect and this was flagged before any test
+call went out, rather than after. Session then found the user's *actual*
+live symptom ("monitor keeps shutting off then flashing back on") was not
+a kiosk automation bug — self-heal `Turn-MonitorOff` was ticking clean
+every 5 min, nothing else in the automation was touching the screen. Root
+cause: **this live diagnostic session itself**, running on the kiosk
+machine, was what the flash was showing — tool-call output repainting the
+VS Code/Claude Code window is apparently enough to make the display
+register a signal and wake, independent of Windows' own DPMS state. No
+code fix; noted in memory as a standing thing to watch for if a future
+session runs live diagnostics on the kiosk machine during quiet hours.
+
+**Kath's-phone debug-free build.** The green call-debug strip (`App.js`
+`SHOW_CALL_DEBUG`) was hardcoded `true` in every build. Gated it behind
+`EXPO_PUBLIC_SHOW_CALL_DEBUG` (default `true`, so the normal debug workflow
+is unaffected) — commit `0e0b5f1`. iOS build `30975983247` dispatched with
+it off, green, ready to install. Full first-time SideStore setup sequence
+written up (not yet executed) — see "Kath's phone" in the outstanding
+table below, same detail also given directly to the user in-session.
+
+**Full-screen-intent / battery-opt setup prompt — real fix, not another
+band-aid.** User reported it wasn't firing on the latest Android build
+despite asking "several times" before. `git log -G` on the AsyncStorage key
+turned up three prior fixes (`284d0d4`, `a999a0e`, `29b2246a`), each of
+which manually bumped a hardcoded one-shot suffix (`_v2`→`_v3`→`_v4`) to
+force a single re-prompt — which silently regresses again on every later
+build once a device has burned that exact key, since AsyncStorage survives
+an APK update-in-place. Fixed structurally this time: the key is now
+derived from `BUILD_TAG` (the per-build git SHA the CI workflow already
+injects), so every new build automatically gets its own key and re-prompts
+with no manual step required, ever. Commit `28d41a7`.
+
+**Recurring events — first live feedback after the weekend's on-device
+test, both items shipped:**
+1. **End date was a typed `YYYY-MM-DD` field** — bad UX, user asked to see
+   a mockup before building. Published an artifact mockup reusing
+   `MonthView`'s existing grid, "today"/"selected" colours, and the ‹ ›
+   month-nav language already on the DATE row above it. Approved, then
+   built as `EndDatePicker` — tap-to-expand inline calendar, no new visual
+   language. Companion commit `6f0fce6`.
+2. **Deleting a recurring instance only ever deleted that one occurrence** —
+   no way to remove the whole series. Backend now exposes
+   `recurringEventId` on expanded recurring instances (`calendar_backend.py`,
+   commit `e8ede98`, **deployed to Fly and confirmed live** via a direct
+   API check against a real event). Companion's delete flow (same
+   `6f0fce6`) now offers "This event" vs "All events in series" whenever
+   that field is present.
+
+**Dashboard calendar colours, answered from `calendar_backend.py`'s
+`CALENDARS` dict (single source of truth, matches companion `theme.js`
+exactly):** Alex `#7AA8A0`, Maddie `#B898A0`, Marj `#D4A86A`, Mum/Kath
+`#C87C6B`, Dad/Adrian `#5A80A0`, Family `#B5A895`.
+
+**End-of-session build state — check before doing anything else:**
+- Android `30976668395` (setup-prompt fix only) — was still running at
+  session end (~28+ min, past the usual ~29 min finish, so check first).
+- Android `30977696593` and iOS `30977698296` (setup-prompt fix + end-date
+  picker + delete-scope UI, supersedes `30976668395` for testing) —
+  iOS confirmed **green**; Android was still running at session end.
+
+### Outstanding, going into session 33
+
+| item | state | next step |
+|---|---|---|
+| Android full retest (baseline, reappearing-call, Test 3, Test 4) | Deferred a 4th session-end running | Debug-strip build, run clean, in order. Ask Oppo missed-call repro directly — 3 sessions with no repro gathered. |
+| Setup-prompt fix (BUILD_TAG-keyed) | Code fixed, build pending/just landed | Confirm it actually reprompts on-device on the new build before trusting it |
+| Recurring events (base feature) | Built, still **never tested on-device** | Add event via phone, confirm on dashboard, spot-check single-instance edit/delete |
+| Recurring events — end-date picker | Built, unreleased to a real device yet | Test the tap-to-expand flow on-device |
+| Recurring events — delete-scope choice | Built + backend deployed live | Test "This event" vs "All events in series" on a real recurring event |
+| **Kath's iPhone — full first-time setup** | **Never done** (planned for 2 Aug, didn't happen) | `idevice_pair` (not iloader) → Sideloadly for SideStore → debug-free IPA (`30975983247`) via SideStore's own **+** picker → LocalDevVPN Auto Connect ON → Shortcuts nightly refresh automation → Bark + `VITE_BARK_KEY_KATH` on Vercel + redeploy → refresh, confirm 7 days, leave locked overnight, confirm 7 days again before she travels |
+| iOS upstream Bark PR (locked-phone case) | Not filed | Low-cost PR to `Finb/Bark`; fall back to accepting as platform limitation if it goes nowhere |
+| Kiosk soundbar flash | Cosmetic, 3 rounds, unresolved | Gemini prompt written, never sent. Don't let it eat a session — nothing is blocked on it. |
+
 ## Session 31 progress — full weekend log (2026-08-01 to 2026-08-04): iOS delete-push fixed unlocked, Android force-leave regression found+fixed twice but still untested, kiosk monitor/soundbar/voice-search fixes, recurring events feature built end-to-end. **Read the "Weekend status recap" section partway down for the actual current state — the day-by-day log below it is history, not a to-do list.**
 
 Picked up session 30's handoff exactly as written (companion `1dfee6f`, kiosk
