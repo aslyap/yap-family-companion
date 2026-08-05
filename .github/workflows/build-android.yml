@@ -2,6 +2,12 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      show_debug:
+        description: 'Show the green call-debug strip (leave true for debugging builds)'
+        required: false
+        default: true
+        type: boolean
 
 jobs:
   build:
@@ -20,6 +26,9 @@ jobs:
       # `#N` cannot do that — it is a per-call counter, identical in every build.
       - name: Record build tag
         run: echo "EXPO_PUBLIC_BUILD_TAG=${GITHUB_SHA::7}" >> $GITHUB_ENV
+
+      - name: Set debug strip visibility
+        run: echo "EXPO_PUBLIC_SHOW_CALL_DEBUG=${{ inputs.show_debug }}" >> $GITHUB_ENV
 
       - name: Setup Node
         uses: actions/setup-node@v4

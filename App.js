@@ -32,7 +32,9 @@ import { postMissedCall } from './src/missedCall';
 import { COLORS } from './src/theme';
 
 // TEMPORARY — set to false (or delete CallDebugStrip) once the cold-start ring works.
-const SHOW_CALL_DEBUG = true;
+// Env-gated (default true) so a one-off build for a non-debugging phone can omit
+// it via EXPO_PUBLIC_SHOW_CALL_DEBUG=false without touching the debug build path.
+const SHOW_CALL_DEBUG = process.env.EXPO_PUBLIC_SHOW_CALL_DEBUG !== 'false';
 
 // TEMPORARY — which build this reading came from.
 //
