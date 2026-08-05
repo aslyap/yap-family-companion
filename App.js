@@ -673,14 +673,14 @@ function StreamWrapper({ children }) {
           // Detached: these open settings screens and only resolve once the user comes
           // back, so awaiting here would hold up connecting to Stream. Sequential inside
           // so the second screen doesn't launch over the first.
-          // The keys are suffixed _v2 deliberately. The previous build set the
-          // unsuffixed keys immediately before calling Linking.sendIntent, which
-          // silently failed to open anything — so every device that ran it has the
-          // old keys set and would never be prompted again, even after the intent
-          // code was fixed. Bumping the key re-prompts those installs once.
-          //
-          // Anything that changes whether these prompts are still needed must bump
-          // the suffix again; there is no way to read the grant state back from JS.
+          // These keys are suffixed with BUILD_TAG (the git SHA this build was made
+          // from), not a hand-bumped version number. Three prior fixes (284d0d4,
+          // a999a0e, 29b2244) each re-prompted devices by manually bumping a fixed
+          // suffix (_v2 -> _v3 -> _v4) — which only re-prompts devices for THAT one
+          // commit and silently regresses again on every later build, since
+          // AsyncStorage survives an APK update-in-place and there is no way to read
+          // the actual grant state back from JS. Keying off BUILD_TAG makes every
+          // new build a new key automatically, so this can't be forgotten again.
           //
           // Session 29: this whole IIFE previously had NO error handling — if
           // either AsyncStorage call or either settings-launch step threw for any
@@ -692,13 +692,13 @@ function StreamWrapper({ children }) {
           // install code path before. Each step now runs in its own try/catch and
           // reports failure to the debug strip, so a failure here is visible
           // instead of invisible, and one step failing no longer takes the next
-          // one down with it. Keys bumped to _v4/_v2b so this device (and anything
-          // else that silently failed before) gets re-prompted once.
+          // one down with it.
           (async () => {
             try {
-              const batteryAsked = await AsyncStorage.getItem('setup_battery_opt_v2b');
+              const batteryKey = `setup_battery_opt_${BUILD_TAG}`;
+              const batteryAsked = await AsyncStorage.getItem(batteryKey);
               if (!batteryAsked) {
-                await AsyncStorage.setItem('setup_battery_opt_v2b', '1');
+                await AsyncStorage.setItem(batteryKey, '1');
                 await openBatteryOptimizationSettings();
               }
             } catch (err) {
@@ -717,9 +717,10 @@ function StreamWrapper({ children }) {
             // behind an Alert that says exactly which toggle to turn on, and only open
             // the page once they acknowledge.
             try {
-              const done = await AsyncStorage.getItem('setup_full_screen_intent_v4');
+              const fullScreenKey = `setup_full_screen_intent_${BUILD_TAG}`;
+              const done = await AsyncStorage.getItem(fullScreenKey);
               if (!done) {
-                await AsyncStorage.setItem('setup_full_screen_intent_v4', '1');
+                await AsyncStorage.setItem(fullScreenKey, '1');
                 await new Promise(resolve => {
                   Alert.alert(
                     'Let calls wake your phone',
