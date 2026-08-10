@@ -1,5 +1,84 @@
 # yap-family-companion — Session Handoff
 
+## Session 33 progress (2026-08-09) — kiosk-only: soundbar flash's real cause found, dashboard windowed-boot bug root-caused twice and self-healed, uncommitted production scripts recovered
+
+No companion-app code touched this session — all kiosk-side (`yap-kiosk-setup` + one `yap-family-home` backend script). Picked up session 32 as written, all three repos confirmed matching, no drift.
+
+**Soundbar flash — the actual visible artifact identified, and most of its
+cause turned out to be unnecessary work in the first place:**
+- Live-tested the `Connect-Soundbar-v4.ps1` prototype (PnP device
+  disable/enable instead of driving the `ms-settings:` UI) — the toggle
+  itself worked cleanly (elevated, both calls succeeded, reconnected in
+  ~3.4s), and confirmed **zero window was created** — the original
+  `ms-settings:` race v1-v3 fought is fully gone with this technique.
+  But the user still saw two flashes. Asked directly rather than guessing:
+  **it was Windows' own native Bluetooth connect/disconnect toast
+  notification**, not a display resync or app window. Fixed by disabling
+  toast banners for the kiosk user account (`ToastEnabled=0` — the actual
+  Settings-writable path at `HKCU:\...\PushNotifications`, not the
+  Group-Policy path which was access-denied for this account).
+- Separately found **real, already-working, previously uncommitted work**
+  sitting on disk from earlier the same day: `Test-SoundbarConnected.ps1`,
+  a headless PnP-status check letting `music-server`'s `/health` handler
+  (which fires on every Music tab click) skip the reconnect flow entirely
+  when the soundbar is already connected. Its own log showed most
+  reconnect runs were firing needlessly on an already-good connection —
+  i.e. most of the flashing was never a needed reconnect at all. Both this
+  and the `v4` prototype, plus two other already-referenced-but-uncommitted
+  production scripts (`Set-CallAudioOutput.ps1`, `Setup-MusicServerTask.ps1`),
+  are now actually in git — kiosk `101cb48`, backend `93e06ca`.
+
+**Dashboard opened windowed with a title bar after a Beelink restart —
+root-caused twice (recurred on a second reboot, which is what proved the
+first fix was incomplete):**
+- Confirmed via the live window's own `CommandLine`
+  (`Get-CimInstance Win32_Process`): it wasn't `Yap-Kiosk-Edge` that
+  created it. Edge's own "Startup boost" feature silently maintains
+  `MicrosoftEdgeAutoLaunch_*` Run-key entries that launch
+  `msedge --no-startup-window --win-session-start` at logon, racing
+  `Yap-Kiosk-Edge`'s own `--start-fullscreen` launch. When it wins, Edge
+  restores the previous session as a normal windowed app — same window
+  *title* as the real kiosk, which is why `Yap-Dashboard-Watchdog`'s
+  existing title-only check never caught it.
+- Manually removing the Run-key entries fixed it once, then **did not
+  hold past the next reboot** — Edge recreated one entry on its own.
+  Checked both the per-profile `Preferences` JSON and the browser-wide
+  `Local State` JSON for a scriptable toggle; found tracking objects
+  (`startup_boost`, `edge_autolaunch`) but no plain enabled/disabled flag.
+  Disabling it properly needs `edge://settings/system` (GUI) or an
+  elevated policy write — neither available this session.
+- **Durable fix instead of chasing the setting:** `Yap-Dashboard-Watchdog`
+  (`Restore-DashboardFullscreen.ps1`, runs every 5 min) now also checks
+  the found window's actual command line for `--start-fullscreen`, not
+  just its title — a title match without it is treated the same as no
+  window at all: killed and relaunched via `Yap-Kiosk-Edge`. Self-heals
+  within 5 min of any future boot that loses the race, regardless of
+  whether Edge keeps recreating the Run-key entries. Kiosk `887ff73`.
+
+**Maddie/Alex avatar images briefly showed as broken right after a
+reboot, fixed on refresh** — checked live, both images return 200 OK with
+correct sizes, so this wasn't a missing asset. Read as a one-off
+load-timing race (page rendering before network was fully up
+immediately post-boot), not chased further since it self-resolved and
+didn't recur as a persistent state.
+
+**Repo hygiene:** kiosk repo had no `.gitignore` — every session's `git
+status` showed the same pile of runtime `*.log` files and a stray `*.bak`
+as untracked clutter. Added one; untracked the one log file that was
+already (accidentally) committed.
+
+### Outstanding, going into session 34
+
+| item | state | next step |
+|---|---|---|
+| **Kath's iPhone — full first-time setup** | **Never done, top priority** | Full instructions in the session-34 kickoff prompt |
+| Android full retest (baseline, reappearing-call, Test 3, Test 4) | Deferred a 5th session-end running | Debug-strip build, run clean, in order. Ask Oppo missed-call repro directly. |
+| Recurring events (base feature + end-date picker + delete-scope) | Built, still never tested on-device | Add event via phone, confirm on dashboard, test end-date picker, test both delete options |
+| Setup-prompt fix (BUILD_TAG-keyed) | Code fixed, builds green | Confirm it actually reprompts on-device |
+| Soundbar flash | Toast-notification cause fixed; skip-reconnect logic live; v2 (UI-automation reconnect) still flashes on a **genuine** reconnect (rare now) | Low priority — watch for a real reconnect flash now that most spurious ones are gone; v4 (PnP toggle, no window at all) is the eventual replacement if it recurs |
+| Dashboard windowed-boot bug | Self-heals within 5 min now, root toggle still not disabled | Try `edge://settings/system` directly next time someone's at the machine, or the elevated policy route |
+| iOS upstream Bark PR (locked-phone case) | Not filed | Low-cost PR to `Finb/Bark`; fall back to accepting as platform limitation if it goes nowhere |
+
 ## Session 32 progress — setup-prompt regression root-caused structurally, recurring-events UI shipped from live feedback, Kath's-phone debug-free build + full install plan written
 
 Picked up session 31's handoff exactly as written (companion `74fd535`,
