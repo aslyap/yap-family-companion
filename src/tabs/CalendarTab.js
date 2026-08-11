@@ -3,7 +3,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Modal, TextInput, KeyboardAvoidingView, Platform,
-  ActivityIndicator, Alert, Image, Dimensions, Pressable,
+  ActivityIndicator, Alert, ActionSheetIOS, Image, Dimensions, Pressable,
   RefreshControl, FlatList,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -932,6 +932,31 @@ function EventSheet({ visible, mode, event, defaultDate, onClose, onSaved, onDel
     // (see calendarService.js) — its own id deletes just this occurrence, deleting
     // by recurringEventId (the series' master id) removes the whole series.
     if (event?.recurringEventId) {
+      // Session 34: Kath reported only seeing one option on iOS, not the
+      // three Android shows. Alert.alert's 3-button layout on iOS is a
+      // UIAlertController in Alert style, which Apple's own HIG scopes to
+      // 1-2 simple choices — 3+ related choices (especially with more than
+      // one destructive action, as here) is what ActionSheetIOS/UIAlertController
+      // action-sheet style exists for, and is far more reliably rendered
+      // with N options. Switching this one interaction to it on iOS rather
+      // than guessing at the exact Alert-style rendering gap without a
+      // repro to actually inspect.
+      if (Platform.OS === 'ios') {
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            title: 'Delete Recurring Event',
+            message: `"${event?.title}" repeats. Delete just this event, or every event in the series?`,
+            options: ['Cancel', 'This event', 'All events in series'],
+            cancelButtonIndex: 0,
+            destructiveButtonIndex: [1, 2],
+          },
+          buttonIndex => {
+            if (buttonIndex === 1) doDelete(event.id)();
+            if (buttonIndex === 2) doDelete(event.recurringEventId)();
+          }
+        );
+        return;
+      }
       Alert.alert(
         'Delete Recurring Event',
         `"${event?.title}" repeats. Delete just this event, or every event in the series?`,
@@ -1119,6 +1144,26 @@ function EventSheet({ visible, mode, event, defaultDate, onClose, onSaved, onDel
   );
 }
 
+// Tap-to-expand calendar under the Day view's date-nav label. Separate tiny
+// component (not just calling useCalendarNav inline in CalendarTab) so it can
+// be keyed by selectedDate — CalendarTab itself never remounts, and
+// useCalendarNav's viewYear/viewMonth0 only initialise once on mount, so
+// without a fresh key an arrow-navigated date wouldn't move the dropdown's
+// browsed month the next time it's opened.
+function NavMiniCalendar({ selectedDate, onSelect }) {
+  const { viewYear, viewMonth0, changeMonth } = useCalendarNav(selectedDate);
+  return (
+    <MiniCalendarGrid
+      viewYear={viewYear}
+      viewMonth0={viewMonth0}
+      selectedValue={selectedDate}
+      onSelectDay={onSelect}
+      onPrevMonth={() => changeMonth(-1)}
+      onNextMonth={() => changeMonth(1)}
+    />
+  );
+}
+
 // ─── CalendarTab ──────────────────────────────────────────────────────────────
 
 export default function CalendarTab() {
@@ -1126,6 +1171,7 @@ export default function CalendarTab() {
 
   const [view,          setView]          = useState('day');
   const [selectedDate,  setSelectedDate]  = useState(() => todayStr());
+  const [navCalOpen,    setNavCalOpen]    = useState(false);
   const [events,        setEvents]        = useState([]);
   const [loading,       setLoading]       = useState(false);
   const [refreshing,    setRefreshing]    = useState(false);
@@ -1210,7 +1256,7 @@ export default function CalendarTab() {
           <TouchableOpacity
             key={v}
             style={[styles.switcherTab, view === v && styles.switcherTabActive]}
-            onPress={() => setView(v)}
+            onPress={() => { setView(v); setNavCalOpen(false); }}
             activeOpacity={0.75}
           >
             <Text style={[styles.switcherLabel, view === v && styles.switcherLabelActive]}>
@@ -1225,16 +1271,30 @@ export default function CalendarTab() {
         <TouchableOpacity style={styles.navBtn} onPress={navPrev}>
           <Text style={styles.navArrow}>‹</Text>
         </TouchableOpacity>
-        <View style={{ flex: 1, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
+        <TouchableOpacity
+          style={{ flex: 1, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
+          activeOpacity={view === 'day' ? 0.7 : 1}
+          onPress={() => { if (view === 'day') setNavCalOpen(o => !o); }}
+        >
           <Text style={styles.navLabel}>{navLabel()}</Text>
           {loading && !refreshing && (
             <ActivityIndicator size="small" color={COLORS.timeIndicator} style={{ marginLeft: 6 }} />
           )}
-        </View>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.navBtn} onPress={navNext}>
           <Text style={styles.navArrow}>›</Text>
         </TouchableOpacity>
       </View>
+
+      {navCalOpen && view === 'day' && (
+        <View style={styles.navCalPanel}>
+          <NavMiniCalendar
+            key={selectedDate}
+            selectedDate={selectedDate}
+            onSelect={ds => { setSelectedDate(ds); setNavCalOpen(false); }}
+          />
+        </View>
+      )}
 
       {/* Legend — week + month only */}
       {(view === 'week' || view === 'month') && (
@@ -1556,6 +1616,14 @@ const styles = StyleSheet.create({
   calPanel: {
     borderWidth: 1, borderColor: COLORS.border, borderTopWidth: 0,
     borderBottomLeftRadius: 8, borderBottomRightRadius: 8,
+    paddingHorizontal: 10, paddingTop: 8, paddingBottom: 10,
+  },
+  // Same content as calPanel, but self-contained (border on all sides) for use
+  // below a plain, borderless row like the Day view's date-nav — calPanel's
+  // missing top border assumes a bordered field sitting directly above it.
+  navCalPanel: {
+    marginHorizontal: H_PAD, marginBottom: 8,
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, backgroundColor: COLORS.background,
     paddingHorizontal: 10, paddingTop: 8, paddingBottom: 10,
   },
   calMonthRow: {

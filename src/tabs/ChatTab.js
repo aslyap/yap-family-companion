@@ -283,11 +283,13 @@ export default function ChatTab() {
 
     setBusy(true);
     append({ id: uid(), type: 'me', text });
+    setInput(''); // clear as soon as the message lands in the thread, not after the
+                   // round trip resolves — it was sitting there through the whole
+                   // "thinking" wait, which read as if nothing had been sent yet.
 
     const newHistory = [...history, { role: 'user', content: text }];
     try {
       const resp = await callClaude(newHistory);
-      setInput('');
       ingestResponse(resp, newHistory);
     } catch (e) {
       const raw = e.message || 'unknown error';
