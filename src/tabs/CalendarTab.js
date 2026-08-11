@@ -631,24 +631,81 @@ function TimePicker({ value, onChange }) {
   );
 }
 
-// ─── EndDatePicker ────────────────────────────────────────────────────────────
-// Tap-to-expand inline calendar for the recurring-event end date, replacing a
-// typed YYYY-MM-DD field. Deliberately reuses MonthView's grid helpers and
+// ─── MiniCalendarGrid ─────────────────────────────────────────────────────────
+// The dropdown portion shared by DatePicker and EndDatePicker below: month-nav
+// row + weekday header + day grid. Reuses MonthView's grid helpers and
 // "today"/"selected" colours (COLORS.timeIndicator / COLORS.family) instead of
-// inventing a second calendar look — same ‹ › month-nav language as the DATE
-// row above it in this same sheet.
-
-function EndDatePicker({ value, onChange }) {
-  const initial = value ? new Date(value + 'T12:00:00') : new Date();
-  const [open, setOpen] = useState(false);
-  const [viewYear, setViewYear] = useState(initial.getFullYear());
-  const [viewMonth0, setViewMonth0] = useState(initial.getMonth());
-
+// inventing a second calendar look.
+//
+// Cell widths are percentage-based (100/7), NOT the MONTH_CELL_W constant
+// MonthView uses — that constant is sized for MonthView's own unpadded
+// container, but this grid renders inside calPanel's own horizontal padding,
+// so a pixel width computed against the wrong container came up short by one
+// column's worth per row: confirmed live, "Su" wrapped under "Mo" because 7
+// MONTH_CELL_W-wide cells didn't fit inside the narrower padded area. Percentage
+// widths always sum to exactly 100% of whatever container they're actually in,
+// so this can't happen regardless of surrounding padding.
+function MiniCalendarGrid({ viewYear, viewMonth0, selectedValue, onSelectDay, onPrevMonth, onNextMonth }) {
   const today = todayStr();
   const grid = getMonthGrid(viewYear, viewMonth0);
   const monthLabel = new Date(viewYear, viewMonth0, 1)
     .toLocaleDateString('en-SG', { month: 'long', year: 'numeric' })
     .toUpperCase();
+
+  return (
+    <>
+      <View style={styles.calMonthRow}>
+        <TouchableOpacity onPress={onPrevMonth} hitSlop={10}>
+          <Text style={styles.calArrow}>‹</Text>
+        </TouchableOpacity>
+        <Text style={styles.calMonthLabel}>{monthLabel}</Text>
+        <TouchableOpacity onPress={onNextMonth} hitSlop={10}>
+          <Text style={styles.calArrow}>›</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.calGrid}>
+        {WEEKDAY_SHORT.map(d => (
+          <Text key={d} style={styles.calWeekday}>{d.slice(0, 2)}</Text>
+        ))}
+        {grid.map((ds, i) => {
+          const d       = new Date(ds + 'T12:00:00');
+          const inMonth = d.getMonth() === viewMonth0;
+          const isToday = ds === today;
+          const isSel   = ds === selectedValue;
+          return (
+            <TouchableOpacity
+              key={i}
+              style={styles.calDayCell}
+              onPress={() => onSelectDay(ds)}
+              activeOpacity={0.7}
+            >
+              <View style={[
+                styles.calDayCircle,
+                isToday && styles.calDayToday,
+                isSel && !isToday && styles.calDaySelected,
+              ]}>
+                <Text style={[
+                  styles.calDayText,
+                  !inMonth && styles.calDayOtherMonth,
+                  (isToday || isSel) && styles.calDayTextOnColor,
+                ]}>
+                  {d.getDate()}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </>
+  );
+}
+
+// Shared month-navigation state for both pickers below.
+function useCalendarNav(initialValue) {
+  const initial = initialValue ? new Date(initialValue + 'T12:00:00') : new Date();
+  const [viewYear, setViewYear] = useState(initial.getFullYear());
+  const [viewMonth0, setViewMonth0] = useState(initial.getMonth());
 
   function changeMonth(delta) {
     let y = viewYear, m = viewMonth0 + delta;
@@ -658,10 +715,58 @@ function EndDatePicker({ value, onChange }) {
     setViewMonth0(m);
   }
 
-  function selectDay(ds) {
-    onChange(ds);
-    setOpen(false);
-  }
+  return { viewYear, viewMonth0, changeMonth };
+}
+
+// ─── DatePicker ───────────────────────────────────────────────────────────────
+// The required event DATE field. Keeps the existing ‹ date › row (arrows still
+// step ±1 day, unchanged) but tapping the date text itself now also expands
+// the same inline calendar EndDatePicker uses, so an arbitrary date doesn't
+// need N taps of the day-arrow to reach.
+function DatePicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const { viewYear, viewMonth0, changeMonth } = useCalendarNav(value);
+
+  return (
+    <View>
+      <View style={styles.dateRow}>
+        <TouchableOpacity style={styles.navBtn} onPress={() => onChange(d => offsetDate(d, -1))}>
+          <Text style={styles.navArrow}>‹</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={{ flex: 1 }} onPress={() => setOpen(o => !o)} activeOpacity={0.7}>
+          <Text style={styles.dateLabel}>
+            {new Date(value + 'T12:00:00').toLocaleDateString('en-SG', {
+              weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+            })}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.navBtn} onPress={() => onChange(d => offsetDate(d, 1))}>
+          <Text style={styles.navArrow}>›</Text>
+        </TouchableOpacity>
+      </View>
+
+      {open && (
+        <View style={styles.calPanel}>
+          <MiniCalendarGrid
+            viewYear={viewYear}
+            viewMonth0={viewMonth0}
+            selectedValue={value}
+            onSelectDay={ds => { onChange(ds); setOpen(false); }}
+            onPrevMonth={() => changeMonth(-1)}
+            onNextMonth={() => changeMonth(1)}
+          />
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ─── EndDatePicker ────────────────────────────────────────────────────────────
+// Tap-to-expand inline calendar for the recurring-event end date, replacing a
+// typed YYYY-MM-DD field.
+function EndDatePicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const { viewYear, viewMonth0, changeMonth } = useCalendarNav(value);
 
   return (
     <View>
@@ -682,50 +787,14 @@ function EndDatePicker({ value, onChange }) {
 
       {open && (
         <View style={styles.calPanel}>
-          <View style={styles.calMonthRow}>
-            <TouchableOpacity onPress={() => changeMonth(-1)} hitSlop={10}>
-              <Text style={styles.calArrow}>‹</Text>
-            </TouchableOpacity>
-            <Text style={styles.calMonthLabel}>{monthLabel}</Text>
-            <TouchableOpacity onPress={() => changeMonth(1)} hitSlop={10}>
-              <Text style={styles.calArrow}>›</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.calGrid}>
-            {WEEKDAY_SHORT.map(d => (
-              <Text key={d} style={[styles.calWeekday, { width: MONTH_CELL_W }]}>{d.slice(0, 2)}</Text>
-            ))}
-            {grid.map((ds, i) => {
-              const d       = new Date(ds + 'T12:00:00');
-              const inMonth = d.getMonth() === viewMonth0;
-              const isToday = ds === today;
-              const isSel   = ds === value;
-              return (
-                <TouchableOpacity
-                  key={i}
-                  style={[styles.calDayCell, { width: MONTH_CELL_W }]}
-                  onPress={() => selectDay(ds)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[
-                    styles.calDayCircle,
-                    isToday && styles.calDayToday,
-                    isSel && !isToday && styles.calDaySelected,
-                  ]}>
-                    <Text style={[
-                      styles.calDayText,
-                      !inMonth && styles.calDayOtherMonth,
-                      (isToday || isSel) && styles.calDayTextOnColor,
-                    ]}>
-                      {d.getDate()}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
+          <MiniCalendarGrid
+            viewYear={viewYear}
+            viewMonth0={viewMonth0}
+            selectedValue={value}
+            onSelectDay={ds => { onChange(ds); setOpen(false); }}
+            onPrevMonth={() => changeMonth(-1)}
+            onNextMonth={() => changeMonth(1)}
+          />
           <View style={styles.calFooter}>
             <TouchableOpacity onPress={() => { onChange(''); setOpen(false); }} disabled={!value}>
               <Text style={[styles.calClear, !value && styles.calClearDisabled]}>Clear end date</Text>
@@ -931,19 +1000,7 @@ function EventSheet({ visible, mode, event, defaultDate, onClose, onSaved, onDel
           />
 
           <Text style={styles.fieldLabel}>DATE</Text>
-          <View style={styles.dateRow}>
-            <TouchableOpacity style={styles.navBtn} onPress={() => setDate(d => offsetDate(d, -1))}>
-              <Text style={styles.navArrow}>‹</Text>
-            </TouchableOpacity>
-            <Text style={styles.dateLabel}>
-              {new Date(date + 'T12:00:00').toLocaleDateString('en-SG', {
-                weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
-              })}
-            </Text>
-            <TouchableOpacity style={styles.navBtn} onPress={() => setDate(d => offsetDate(d, 1))}>
-              <Text style={styles.navArrow}>›</Text>
-            </TouchableOpacity>
-          </View>
+          <DatePicker key={visible} value={date} onChange={setDate} />
 
           {!isEdit && (
             <>
@@ -1509,10 +1566,11 @@ const styles = StyleSheet.create({
   calMonthLabel: { fontFamily: FONTS.heading, fontSize: 11, letterSpacing: 0.5, color: COLORS.text },
   calGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   calWeekday: {
+    width: '14.2857%',
     fontFamily: FONTS.heading, fontSize: 10, letterSpacing: 0.5,
     color: COLORS.textSecondary, textAlign: 'center', paddingBottom: 4,
   },
-  calDayCell: { alignItems: 'center', paddingVertical: 3 },
+  calDayCell: { width: '14.2857%', alignItems: 'center', paddingVertical: 3 },
   calDayCircle: {
     width: 26, height: 26, borderRadius: 13,
     alignItems: 'center', justifyContent: 'center',
