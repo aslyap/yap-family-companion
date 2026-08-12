@@ -44,13 +44,18 @@ function cap(s) {
 
 function toolDetail(name, inp) {
   switch (name) {
-    case 'add_calendar_event':
+    case 'add_calendar_event': {
+      const days = (inp.recurrenceDays || []).length
+        ? inp.recurrenceDays.map(cap).join(', ')
+        : 'Every day';
       return [
         inp.title,
         (inp.persons || []).map(cap).join(' · '),
-        `${inp.date}  ·  ${inp.startTime}–${inp.endTime}`,
+        `${inp.date}  ·  ${inp.startTime}–${inp.endTime}${inp.recurring ? ' (first occurrence)' : ''}`,
+        inp.recurring ? `Repeats: ${days}${inp.recurrenceEndDate ? `, until ${inp.recurrenceEndDate}` : ''}` : null,
         inp.location || null,
       ].filter(Boolean);
+    }
     case 'edit_calendar_event':
       return [
         `Calendar: ${cap(inp.person)}`,
@@ -85,12 +90,19 @@ function toolDetail(name, inp) {
 async function runTool(name, inp) {
   switch (name) {
     case 'add_calendar_event':
+      // recurring/recurrenceDays/recurrenceEndDate were previously dropped here even
+      // though createCalendarEvent (and the manual Add Event sheet) already support
+      // them — the chat tool schema didn't expose them at all, so the assistant had
+      // no way to fulfil a recurring request no matter how it was phrased.
       await createCalendarEvent({
         persons: inp.persons,
         title: inp.title,
         startISO: toISO(inp.date, inp.startTime),
         endISO: toISO(inp.date, inp.endTime),
         location: inp.location || '',
+        recurring: inp.recurring || false,
+        recurrenceDays: inp.recurring ? (inp.recurrenceDays || null) : null,
+        recurrenceEndDate: inp.recurring ? (inp.recurrenceEndDate || null) : null,
       });
       return 'Event added';
 
