@@ -1,5 +1,93 @@
 # yap-family-companion — Session Handoff
 
+## Session 34 progress (2026-08-12) — dashboard calendar-picker root-caused, chatbot recurring-event "nightmare" fixed, CIS school holidays now automatic via a Beelink relay
+
+Picked up session 33 as written, all three repos confirmed matching, no drift.
+
+**Dashboard tap-to-open-calendar "doesn't work" — root-caused, not actually
+broken.** Reported live right after shipping it. The dropdown WAS opening —
+this kiosk's whole layout is deliberately fit to the viewport with zero
+scroll slack (`fitHourH`/`fitCalHourH`), so the dropdown rendering in normal
+document flow just pushed the grid below it into scroll territory nobody
+would think to reach on a screen that's never needed scrolling. Fixed by
+making `.mini-cal-panel` `position: absolute` off a new `.date-nav-wrap`
+anchor so it overlays instead of affecting layout. Confirmed working by the
+user afterward. Also fixed while in there: Calendar Day view's date label
+said "Today, 11 August" while Home's said "Tuesday, 11 August" —
+inconsistent; now always shows the weekday name. Companion app checked and
+was already consistent, no change needed there.
+
+**Chatbot recurring-event "nightmare" — real root cause found from a live
+transcript, not guessed at.** User tried to schedule a recurring swim
+schedule with two exclusion windows; the assistant created premature
+tool-call cards before it understood the request, backtracked through 5
+rounds of clarification, correctly worked out a 3-series strategy to route
+around the gaps — and then admitted it had no tool capability to create
+*any* recurring calendar event at all. Confirmed in code: `add_calendar_event`'s
+tool schema only ever had `persons/title/date/startTime/endTime/location` —
+recurrence was never added to it, even though the backend and manual Add
+Event UI both already supported it. Fixed: schema gained
+`recurring`/`recurrenceDays`/`recurrenceEndDate` (backend), the companion
+chat tool's `runTool`/`toolDetail` now actually pass them through instead of
+silently dropping them, and the system prompt now tells the model to ask
+clarifying questions in plain text FIRST rather than issue a guessed tool
+call (each one is a real card the user has to cancel) and ask its question
+in the same turn.
+
+**CIS school holidays — now genuinely automatic, after working through three
+different obstacles in sequence:**
+1. First feed tried (`cms.cis.edu.sg`) turned out to only cover ~3.5 weeks
+   ahead, missing entire terms — user caught this ("that's not correct")
+   and supplied the real one (`my.cis.edu.sg` parent portal export, 870
+   events, two full academic years).
+2. That URL 403s from the Fly backend specifically — confirmed via a direct
+   comparison (same request succeeds with `curl` from this machine, fails
+   from Fly's servers) that it's Cloudflare blocking Fly's datacenter IPs,
+   not anything about the request itself.
+3. Built a relay instead of fighting Cloudflare from Fly: a daily scheduled
+   task on this machine (`Yap-CIS-Holidays-Relay`, 08:00, `pythonw.exe`)
+   fetches, filters (word-boundary keyword match — a bare substring match
+   had earlier flagged "Staff Wellness **Break**fast" as a closure and
+   merged it into an adjacent real PD day), merges into contiguous ranges,
+   and pushes to a new `POST /api/cis-holidays` endpoint the backend just
+   caches. The fetch itself shells out to `curl.exe` rather than using
+   Python's `requests` — a second Cloudflare quirk found mid-build: it
+   TLS-fingerprints and blocks `requests`/urllib3 specifically, even with an
+   identical header, from the identical machine, where `curl` succeeds every
+   time. User asked directly whether this would flash like the soundbar
+   script did — it's built to avoid that class of bug from the start:
+   `pythonw.exe` never allocates a console at all (unlike a hidden
+   `python.exe`/`powershell.exe`, both of which have the exact startup-race
+   gap that caused the soundbar flash), and the one subprocess inside it
+   (`curl`) is hardened the same way that fix was, `CREATE_NO_WINDOW` +
+   `STARTUPINFO`/`SW_HIDE`. Verified end-to-end twice (direct invocation and
+   via the actual scheduled task) and confirmed live via a real `/api/chat`
+   call pulling real holiday dates.
+
+**Companion build mixup, caught and corrected:** dispatched Android/iOS
+builds with `show_debug=true` when the user wanted the debug-off "Clean"
+variant (added last session); user flagged it immediately, redispatched
+with `show_debug=false`, both confirmed green (`31490171196` /
+`31490174595`).
+
+**⚠️ End-of-session gap:** the chat-recurrence fix (commit `7287156`) was
+made *after* the last Android/iOS builds were dispatched — **no build
+currently installed on any device has it.** First thing next session.
+
+### Outstanding, going into session 35
+
+| item | state | next step |
+|---|---|---|
+| **Companion builds** | Chat-recurrence fix (`7287156`) not in any dispatched build yet | Dispatch fresh Android + iOS builds first thing |
+| **Kath's iPhone — full first-time setup** | **Still never done** (carried over 2+ sessions) | Full instructions already written in session 32's entry below — idevice_pair → Sideloadly → debug-free IPA → LocalDevVPN → Shortcuts refresh → Bark + Vercel redeploy → overnight-locked verification |
+| Android full retest (baseline, reappearing-call, Test 3, Test 4) | Deferred many session-ends running | Debug-strip build, run clean, in order. Ask Oppo missed-call repro directly. |
+| Recurring events (base + end-date picker + delete-scope) | Built, still never tested on-device | Add event via phone, confirm on dashboard, test end-date picker, test both delete options |
+| iOS recurring-delete via ActionSheet | Shipped, **unconfirmed** whether it actually fixed what Kath saw | Ask directly next time she deletes a recurring event |
+| CIS holidays relay | Working, verified live | Worth a spot-check in a few days that the 08:00 daily run keeps firing unattended |
+| iOS upstream Bark PR (locked-phone case) | Not filed | Low-cost PR to `Finb/Bark`; fall back to accepting as platform limitation if it goes nowhere |
+| Dashboard windowed-boot bug | Self-heals within 5 min, root Edge setting still not disabled | Try `edge://settings/system` directly, or the elevated policy route |
+| Soundbar flash | Mostly fixed | Low priority, nothing blocked on it |
+
 ## Session 33 progress (2026-08-09) — kiosk-only: soundbar flash's real cause found, dashboard windowed-boot bug root-caused twice and self-healed, uncommitted production scripts recovered
 
 No companion-app code touched this session — all kiosk-side (`yap-kiosk-setup` + one `yap-family-home` backend script). Picked up session 32 as written, all three repos confirmed matching, no drift.
