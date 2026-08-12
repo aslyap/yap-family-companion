@@ -1,5 +1,137 @@
 # yap-family-companion — Session Handoff
 
+## Session 35 progress (2026-08-12) — recurring "except school holidays" actually made to work end-to-end after multiple live-tested failures, a real timezone bug found and fixed, CIS holidays relay corrected
+
+Picked up session 34 as written, all three repos confirmed matching, no drift.
+Dispatched fresh Android (`31562197050`) + iOS (`31562199180`) builds first
+thing with the chat-recurrence fix (`7287156`), both confirmed green. Later
+also dispatched a debug-off "Clean" Android build (`31566825700`, green) on
+request.
+
+**Recurring "except school holidays" — session 34 shipped the schema, this
+session found it didn't actually work live and iterated through several real
+failures to a working version, entirely backend-side (no new app build
+needed for any of this):**
+1. First live test: response truncated mid-sentence and reported wrong
+   years/dates (e.g. a 2025 PD day reported as 2026). Root cause: the model
+   was asked to manually exclude weeks from a ~2-year, 24-range holiday list
+   in free text before calling `add_calendar_event` — blew past the
+   1024-token response cap and drifted dates copying by hand.
+2. Fix attempt 1: added a separate `split_weekly_recurrence_around_holidays`
+   tool, worded MUST/REQUIRED in three places. Model (Groq llama-3.3-70b)
+   skipped calling it twice in a row regardless, creating an event that ran
+   straight through a real holiday with zero exclusion.
+3. Fix attempt 2 (the one that stuck): removed the separate tool. Instead
+   `add_calendar_event` takes one `excludeSchoolHolidays` boolean; the
+   backend intercepts any such call server-side and deterministically
+   expands it into one confirmation card per continuous non-holiday stretch
+   (`_split_recurrence_around_holidays` / `_expand_holiday_exclusions`,
+   `calendar_backend.py`). Removes the multi-tool-call ordering the model
+   wasn't following — it only has to remember one flag on the call it was
+   already making.
+4. Next live test surfaced three more real gaps, each fixed and
+   live-verified in turn:
+   - **Cache didn't survive deploys** — `_cis_holidays_cache` was a plain
+     in-memory dict, wiped by every `flyctl deploy` (a new process, not a
+     restart). Persisted it the same way this file already persists the
+     Google refresh token: pushed to a `CIS_HOLIDAYS_JSON` Fly secret,
+     reloaded at boot.
+   - **User couldn't tell how many cards to confirm** — a real request
+     produced 2 cards; the user confirmed only the first, was never told a
+     second was waiting, so only half the recurrence got created (traced via
+     Fly logs — exactly one `POST /api/calendar/events` fired). Fixed by
+     generating a plain-language summary in code (zero extra tokens/model
+     round-trip) shown before the cards, listing each block's dates and the
+     actual holiday skipped in between.
+   - **Trailing cutoff unexplained** — the summary only described gaps
+     *between* blocks, not a holiday that truncates the *last* block early
+     with nothing after it (real case: asked for Tuesdays through 31 Dec,
+     last block silently ended 15 Dec because of the Dec 19–Jan 10 holiday).
+     Now stated explicitly.
+   - Deleted the malformed leftover event from testing (`h2epo0482ilit321ahnh8h2324`,
+     an unbounded weekly Tuesday series that ran straight through the Oct
+     holiday from an earlier failed attempt).
+
+**Separate, real timezone bug found and fixed, unrelated to the above but
+found because of it:** user reported "when I click Tues, the event
+momentarily shows but then disappears." Traced to `GET
+/api/calendar/events` (and two other call sites — the chat's
+`get_calendar_events` tool and its calendar preload) building UTC query
+boundaries by hand as `f"{date}T00:00:00Z"` — a literal `Z` appended to a
+naive local date without converting from SGT to UTC first. SGT midnight is
+UTC 16:00 the *previous* day, so every query window was silently shifted 8
+hours later than intended: anything before 8am SGT fell off the front of
+its own day's results (invisible in a wide range query, a real gap in a
+single-day one — exactly Day view's case). Confirmed live: the swim-training
+event (6:45am SGT) was invisible in a single-day query for its own date but
+visible in a multi-month one. Means the chat assistant itself had the same
+blind spot for early-morning events this whole time, not just the
+dashboard. Fixed with one shared `_sgt_range_bounds_utc()` helper (proper
+`ZoneInfo` conversion) instead of three hand-rolled copies of the same bug.
+
+**CIS holidays relay — one more real bug, caught and corrected before it
+reached the live cache:** user asked "nothing happening on 29/8, where is
+that from" — a real feed entry, "International Schools STEAM PD day,"
+landed on a Saturday and matched the closure keyword filter even though
+school isn't in session on a Saturday regardless. First fix attempt
+filtered weekend-only events out *before* merging — a dry run caught that
+this fragments real multi-week holidays, because the source feed represents
+a break as one VEVENT per calendar day including weekends, and those
+weekend entries are what let `merge_ranges`' adjacency rule chain
+Fri→Sat→Sun→Mon into one continuous range. Fixed by filtering *after*
+merging instead (a weekend-only *merged* range can only be a genuinely
+isolated single day, never a bridge). Verified live: 24 → 23 ranges, only
+2026-08-29 dropped, both real multi-week holidays (Oct 17–Nov 1, Dec 19–Jan
+10) intact. Confirmed real multi-day holidays that span a weekend as part
+of a longer break are unaffected — any day-of-week pattern (tested
+hypothetical Saturday) still correctly excludes days that fall inside them.
+
+**Unrelated diagnostic, no code changes:** user's separate work computer's
+OneDrive kept syncing; a prior "Claude" session had blamed the kiosk.
+Checked directly on the kiosk — no OneDrive account signed in at all,
+Desktop not redirected, confirmed wrong. Real cause: a copy of the
+`yap-family-home` git repo living inside the user's *work* OneDrive-synced
+folder tree (`OneDrive - Committed Advisors\...\Digital Dashboard\`) — git
+repos churn constantly inside cloud-sync folders since every operation
+touches many small `.git/` files. Recommended relocating it outside the
+synced tree; not done this session (work computer, not this machine).
+
+**Operational hazard hit mid-session, self-resolved:** repeated live testing
+of the recurrence fix exhausted both Groq's daily token budget (rolling
+window, not a fixed reset — retry_after drifted between attempts) and
+Gemini's fallback quota simultaneously, leaving the chat assistant fully
+down for roughly an hour. Recovered on its own; no code fix, just a reason
+to test less aggressively live next time a fix needs several iterations.
+
+**End-of-session state:** all fixes are backend-only and already deployed +
+pushed — `yap-family-home` 7 commits (`9821306`..`ed7a694`), `yap-kiosk-setup`
+1 commit (`1d4b4e8`), both on `main` at origin. No new app build needed for
+any of the recurrence/timezone/holidays work; the Android builds dispatched
+at session start already carry the one client-side prerequisite
+(`7287156`).
+
+### Outstanding, going into session 36
+
+| item | state | next step |
+|---|---|---|
+| Recurring "except school holidays" | Backend fixed through several real iterations, last live test (before the trailing-cutoff + weekend-entry fixes) looked correct | One more clean end-to-end retest now that everything's deployed — ask for a fresh recurring event and confirm the summary message, card count, and actual calendar result all agree |
+| **Kath's iPhone — full first-time setup** | **Still never done** (carried over 3+ sessions) | Full instructions in session 32's TODO.md entry — idevice_pair → Sideloadly → debug-free IPA → LocalDevVPN → Shortcuts refresh → Bark + Vercel redeploy → overnight-locked verification |
+| Android full retest (baseline, reappearing-call, Test 3, Test 4) | Deferred many session-ends running | Debug-strip build, run clean, in order. Ask Oppo missed-call repro directly. |
+| iOS recurring-delete via ActionSheet | Shipped, unconfirmed whether it actually fixed what Kath saw | Ask directly next time she deletes a recurring event |
+| CIS holidays relay | Working, weekend-entry bug fixed and verified live | Worth a spot-check in a few days that the 08:00 daily run keeps firing unattended (check KioskSetup/relay-cis-holidays.log for a fresh daily entry) |
+| Work computer OneDrive syncing `yap-family-home` | Diagnosed, not fixed (different machine) | Move the repo copy out of the OneDrive-synced folder tree next time at that computer; check `yap-family-companion`/kiosk repos for the same issue there too |
+| iOS upstream Bark PR (locked-phone case) | Not filed | Low-cost PR to Finb/Bark; fall back to accepting as platform limitation if it goes nowhere |
+| Dashboard windowed-boot bug | Self-heals within 5 min, root Edge setting still not disabled | Try edge://settings/system directly, or the elevated policy route |
+| Soundbar flash | Mostly fixed | Low priority, nothing blocked on it |
+
+Standing rules apply: quiet hours 21:00-07:00 SGT, concrete repro before
+assuming a fix, ask directly rather than guess, keep tracking tables
+current, watch for recurring complaints that mean a past "fix" never held
+structurally. New this session: when a live-tested fix needs several
+iterations, watch shared LLM API quota (Groq TPD / Gemini daily) — repeated
+real conversation-length test calls can exhaust it for the whole family,
+not just the test session.
+
 ## Session 34 progress (2026-08-12) — dashboard calendar-picker root-caused, chatbot recurring-event "nightmare" fixed, CIS school holidays now automatic via a Beelink relay
 
 Picked up session 33 as written, all three repos confirmed matching, no drift.
