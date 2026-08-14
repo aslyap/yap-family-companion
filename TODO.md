@@ -265,7 +265,10 @@ surfaced in the on-screen banner — this is what made the race actually
 diagnosable instead of another guess. `yap-family-home` `094f6bd`.
 
 **End-of-session state:** `yap-family-home` 15 commits this session
-(`9821306`..`094f6bd`), `yap-kiosk-setup` 1 commit (`1d4b4e8`), both pushed
+(`9821306`..`094f6bd`), `yap-kiosk-setup` 2 commits (`1d4b4e8`, `4c63fc0` —
+the second one is `Test-SoundbarConnected.ps1`'s real-audio-endpoint fix,
+caught uncommitted in a final repo-status sweep before writing this up, so
+worth remembering to check for that pattern again next time), both pushed
 to `main`. No new companion app build needed for any of tonight's work — all
 of it is backend/dashboard/kiosk-side; the Android/iOS builds dispatched at
 session start still carry the one client-side prerequisite (`7287156`).
