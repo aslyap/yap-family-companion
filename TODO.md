@@ -264,8 +264,29 @@ vs. play) with `console.error` and the real browser error name/message
 surfaced in the on-screen banner — this is what made the race actually
 diagnosable instead of another guess. `yap-family-home` `094f6bd`.
 
-**End-of-session state:** `yap-family-home` 15 commits this session
-(`9821306`..`094f6bd`), `yap-kiosk-setup` 2 commits (`1d4b4e8`, `4c63fc0` —
+**Same error, different root cause, found within minutes of the fix above
+shipping — the click-race fix wasn't the whole story.** User hit the
+identical `NotSupportedError` again, this time reported precisely: it
+happened on auto-advance to the next queued track (`onended` →
+`playByIndex`), not from clicking anything. Investigated the specific
+failing video directly rather than assume the same bug — fetched its
+stream URL fresh and requested it three times seconds apart: **200, 200,
+then 403/302.** Identical URL, same machine, zero code involved — genuine
+short-term flakiness in yt-dlp-extracted YouTube URLs, not our bug. Fixed
+by extracting the fetch+play logic into `attemptPlayback(track, gen,
+isRetry)`, which retries exactly once with a **freshly fetched** URL (not
+the stale one that just failed) before surfacing an error — matches the
+observed pattern where a subsequent attempt usually succeeds. The
+generation-token guard from the click-race fix carries through the retry
+unchanged. `yap-family-home` `5344eb4`. Worth remembering going into next
+session: this class of bug (external API flakiness masquerading as "our
+code is broken") is why the improved error banner from the first fix
+mattered so much — without the real error name/message on screen, this
+second distinct cause would have looked identical to the first and wasted
+time re-chasing an already-fixed race.
+
+**End-of-session state:** `yap-family-home` 16 commits this session
+(`9821306`..`5344eb4`), `yap-kiosk-setup` 2 commits (`1d4b4e8`, `4c63fc0` —
 the second one is `Test-SoundbarConnected.ps1`'s real-audio-endpoint fix,
 caught uncommitted in a final repo-status sweep before writing this up, so
 worth remembering to check for that pattern again next time), both pushed
@@ -285,7 +306,7 @@ session start still carry the one client-side prerequisite (`7287156`).
 | iOS upstream Bark PR (locked-phone case) | Not filed | Low-cost PR to Finb/Bark; fall back to accepting as platform limitation if it goes nowhere |
 | Dashboard windowed-boot / flashing window | Root-caused and fixed this session (Edge StartupBoostEnabled policy) | Not yet confirmed durable — watch `dashboard-watchdog.log` for a few days for any further impostor-window entries |
 | Soundbar audio outage | Fixed and live-verified this session (real endpoint check + v4-then-v2 reconnect layering) | Watch whether the visible v2 flash actually gets rarer in practice now, not just in the one live test tonight |
-| Music playback race condition | Fixed this session (generation-token guard) | No further action unless it recurs — if it does, the improved error banner will now say exactly what failed |
+| Music playback errors | Two distinct causes found and fixed this session: click race (generation-token guard) and flaky YouTube stream URLs (one retry with a fresh URL) | Watch whether it recurs a third time — if so, the improved error banner will say exactly what failed rather than needing another investigation from scratch |
 | Kath's screensaver | Shipped and confirmed live (photo of the real kiosk screen matched the preview) | None — ask if she wants the crop adjusted (currently full-bleed edge-to-edge, no letterbox) or a different Paquin piece once she's lived with it a few days |
 
 Standing rules apply: quiet hours 21:00-07:00 SGT, concrete repro before
