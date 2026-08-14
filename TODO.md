@@ -1,6 +1,6 @@
 # yap-family-companion — Session Handoff
 
-## Session 35 progress (2026-08-12) — recurring "except school holidays" actually made to work end-to-end after multiple live-tested failures, a real timezone bug found and fixed, CIS holidays relay corrected
+## Session 35 progress (2026-08-12 to 2026-08-14) — recurring "except school holidays" shipped end-to-end, Kath's screensaver replaced with an AI-upscaled Paquin piece, the dashboard's recurring flashing window and a real soundbar audio outage both root-caused and fixed, a live music-playback race condition found and fixed
 
 Picked up session 34 as written, all three repos confirmed matching, no drift.
 Dispatched fresh Android (`31562197050`) + iOS (`31562199180`) builds first
@@ -103,26 +103,187 @@ Gemini's fallback quota simultaneously, leaving the chat assistant fully
 down for roughly an hour. Recovered on its own; no code fix, just a reason
 to test less aggressively live next time a fix needs several iterations.
 
-**End-of-session state:** all fixes are backend-only and already deployed +
-pushed — `yap-family-home` 7 commits (`9821306`..`ed7a694`), `yap-kiosk-setup`
-1 commit (`1d4b4e8`), both on `main` at origin. No new app build needed for
-any of the recurrence/timezone/holidays work; the Android builds dispatched
-at session start already carry the one client-side prerequisite
-(`7287156`).
+**Recurring "except school holidays" — confirmed working via real usage after
+the fixes above.** Live-tested for real (Alex's Tuesday swim training, then
+again after the weekend-entry fix): correct summary message, correct card
+count, correct calendar result. Two follow-up data questions from the user
+during testing turned out to be the feature working correctly, not bugs —
+worth recording so they're not re-investigated: Sep 11 wasn't excluded
+because it's a Friday with no Tuesday inside it (nothing to exclude for a
+Tuesday-only pattern), and Aug 29 dropping out entirely was the weekend-entry
+fix doing its job (see below).
+
+**Dashboard: overlapping-time events now render side-by-side, not stacked.**
+Reported live with a real example — Alex's "Singing with Dian" (4-5:30pm)
+and "Soccer Training" (5-7pm) overlap 5-5:30pm and were rendering as one
+illegible stacked block (`PersonColumn.jsx` positioned every event at a
+fixed `left:5px/right:5px` regardless of overlap). Added `layoutOverlaps()`
+— groups events into overlap clusters (connected by shared time, not just
+pairwise) and greedily packs each cluster into the fewest side-by-side
+columns, same approach as Google Calendar's day view. Non-overlapping events
+are unaffected (still full width). `yap-family-home` `c3fc8f9`.
+
+**CIS holidays relay: dropped a false-positive weekend entry, on the second
+attempt.** User asked "nothing happening on 29/8, where's that from" — a
+real feed entry, "International Schools STEAM PD day," lands on a Saturday
+and matched the closure keyword filter even though school isn't in session
+that day regardless of the label. First fix attempt filtered weekend-only
+events out *before* merging — a dry run caught that this fragments real
+multi-week holidays, since the source feed represents a break as one VEVENT
+per calendar day including weekends, and those weekend entries are exactly
+what let `merge_ranges`' adjacency rule chain them into one continuous
+range. Fixed by filtering *after* merging instead. Verified live: 24 → 23
+ranges, only 2026-08-29 dropped, both real multi-week holidays intact.
+`yap-kiosk-setup` `1d4b4e8`.
+
+**Chat token efficiency: already-passed CIS holidays dropped from the
+system prompt.** A live conversation listed 12 "(already passed)" holidays
+before even reaching the one that mattered, pure token waste against an
+already-tight Groq budget for zero benefit (a past holiday can never
+exclude a future occurrence). `_render_cis_holidays` now takes today's date
+and skips anything already over. `yap-family-home` `a39e7e4`.
+
+**Deleted an accidental duplicate recurring series from live testing.**
+While testing the recurrence-exclusion feature, a second "Swim training"
+series got created for Maddie at 9:45-11:15 (both Tuesdays and Saturdays) —
+separate from the real 6:45-8:00 CIS series. Found and deleted both blocks
+(`m6095hg5sv7nn1qas9cf4ra65s`, `u2qlo42l4uogofa6dijl29rkf8`) via the
+calendar API directly. A similar-shaped Thursday series (Alex, "Swim
+training" 15:45-17:00) was flagged as a possible duplicate too but left
+alone since the user didn't confirm it should go.
+
+**Diagnosed (not fixed — different machine): work computer's OneDrive kept
+syncing because of a copy of `yap-family-home`'s git repo sitting inside the
+OneDrive-synced folder tree**, not anything the kiosk was doing (confirmed
+directly on the kiosk — no OneDrive account signed in at all). Git repos
+churn constantly inside cloud-sync folders since every operation touches
+many small `.git/` files. Recommended relocating it outside the synced tree
+next time at that computer.
+
+**Kath's screensaver — replaced the 13-image rotating pool with one fixed,
+AI-upscaled piece, after a long research detour.** She found the rotating
+art screensaver disruptive and asked for one fixed high-res piece instead,
+Pauline Paquin (a Quebec naive/folk painter), sized for the Philips 438P1 in
+portrait (2160×3840).
+- No source anywhere publishes her work at native screen resolution —
+  checked her official site and four galleries reselling her, all cap
+  1500-3000px on the long side, deliberately (protects against
+  reproduction). Tried Canadian public-domain painters (Krieghoff — real
+  PD, but the only "high-res" file turned out to be a scanned 19th-century
+  book page) and Norval Morrisseau via Google Arts & Culture, where
+  `dezoomify-rs` (reconstructing the gigapixel zoom tiles Google serves but
+  never exposes a download button for) actually got real 4700×7000px files
+  — but Kath found the tone too serious once she saw them, so went back to
+  Paquin specifically.
+- **AI-upscaled 4x with Real-ESRGAN** (`realesrgan-x4plus`, free, local, GPU-
+  accelerated via the machine's Iris Xe) — the only way to get her actual
+  work past the ~1500-3000px ceiling. First attempt ("Florentine",
+  1500×1807 → 6000×7228) had a real quality bug: a source-JPEG decode quirk
+  ("premature end of data segment") that Real-ESRGAN's bundled decoder
+  handled by smearing that one region, confirmed by comparing against a
+  properly re-encoded source — fixable, but Kath said not to bother and to
+  try a different piece instead.
+- **Landed on "Sous les lampadaires"** (kids playing street hockey under
+  streetlights, snowy Montreal alley) — upscaled clean, 800×997 → 3200×3988,
+  verified at native resolution (no blur, real added sharpness) before
+  shipping. `public/art/Sous les lampadaires - Pauline Paquin.jpg` (2.8MB).
+  Along the way: `public/art/` was wholesale gitignored ("Vercel uses the
+  AIC API instead, no images needed") — true for the old rotating pool, not
+  this fixed piece which exists nowhere else to fetch from. A directory-
+  level ignore silently defeats a per-file negation inside it, so switched
+  to ignoring contents (`public/art/*`) with an explicit exception.
+  `yap-family-home` `ba51392`. Confirmed live on the actual kiosk screen
+  (user sent a photo) — crop matches the predicted preview exactly.
+- Side research finding worth keeping: Paquin's own official site
+  genuinely mixes **W×H and H×W dimension conventions within the same
+  page** (confirmed by measuring real image files against both readings —
+  "Florentine" listed "30×36" is W×H, "Dans la cour des grands prix" listed
+  "20×24" is H×W, no visual cue which is which). Explains recurring past
+  confusion about her painting orientations; a full cross-gallery table
+  with %-of-screen-filled for every piece was produced and handed to the
+  user directly (not saved to a file).
+
+**Root-caused and fixed the recurring "flashing window"**, unrelated to the
+screensaver — traced to `Yap-Dashboard-Watchdog` (runs every 5 min) reacting
+to Edge's own "Startup Boost" feature, which kept recreating a
+`MicrosoftEdgeAutoLaunch_*` Run-key entry that races the kiosk's real
+fullscreen launch; every time the watchdog found and killed the resulting
+impostor window, that kill+relaunch cycle *was* the flash — confirmed 3
+occurrences in 25 minutes from `dashboard-watchdog.log` alone. This was
+diagnosed once before (session 33) but only ever mitigated, never fixed at
+the source. Fixed for real this time: `StartupBoostEnabled=0` set at
+`HKLM:\SOFTWARE\Policies\Microsoft\Edge` (machine-wide policy, takes
+precedence over the per-user toggle) via an elevated PowerShell write —
+this account (`Yap Family Dashboard`) turned out to already be a local
+Administrator (confirmed via `Get-LocalGroupMember`, and the machine has
+`ConsentPromptBehaviorAdmin=0` so elevation is silent, no UAC dialog on the
+physical screen). Not yet confirmed the flash has actually stopped for good
+— it doesn't retroactively clear anything already in the Run key, so worth
+watching `dashboard-watchdog.log` for a few days for any further "impostor"
+or "Removed stray" lines.
+
+**Found and fixed a real, days-old soundbar audio outage** — flagged when a
+song wouldn't play. `Test-SoundbarConnected.ps1` (added session 33 to gate
+the flashy reconnect script) only ever checked Bluetooth *pairing* status
+(`Status=OK`), which can stay OK for days while the actual Windows audio
+*endpoint* silently disappears — confirmed live: the soundbar was fully
+absent from `Get-AudioDevice -List`, default playback had quietly fallen
+back to the monitor's own speakers, while the health-check kept logging
+"Connected... skip reconnect" the whole time. Also confirmed live (a
+genuinely new finding) that `Connect-Soundbar-v4`'s PnP toggle — the
+prototype meant to replace the flashy UI-automation reconnect — restores
+Bluetooth `Status=OK` **without** restoring the actual audio endpoint; only
+driving the real Bluetooth Settings "Connect" button (v2) brought audio
+back. Three changes, all live-verified:
+1. `Test-SoundbarConnected.ps1` now checks for the real
+   `Get-AudioDevice` playback endpoint (present + default), not Bluetooth
+   PnP status.
+2. `server.py`'s `_connect_soundbar_bg` now tries v4 first (genuinely
+   invisible), re-checks with that same real endpoint test, and only falls
+   back to the visible v2 if v4 didn't actually restore audio — pays the
+   flash only when the quiet path demonstrably failed, not every time.
+   (User separately asked about hiding v2's flash; this is that fix.)
+3. Restarted the `Yap-Music-Server` task so both landed live immediately.
+   `yap-family-home` `15311c9`.
+
+**Found and fixed a real music-playback race condition**, using the
+improved error diagnostics from fix #3 above to actually see what was
+failing instead of guessing — user hit `Playback failed (NotSupportedError):
+Failed to load because no supported source was found` live. Fetched the
+exact failing stream URL directly and got back valid MP4/AAC data with
+correct headers (with and without the real page's Origin header) — fully
+exonerating the network/backend. Root cause: `playByIndex` had no guard
+against being called again while a previous call was still awaiting
+`getStreamUrl`/`audio.play()` — tapping a second track raced both calls on
+the same shared `<audio>` element, and whichever `audio.src=` landed second
+silently cancelled the other's in-flight load. Added a generation counter
+that lets a call detect after every `await` that it's been superseded and
+quietly stand down instead of fighting over shared state or surfacing a
+spurious error. Also split the original single try/catch into two (fetch
+vs. play) with `console.error` and the real browser error name/message
+surfaced in the on-screen banner — this is what made the race actually
+diagnosable instead of another guess. `yap-family-home` `094f6bd`.
+
+**End-of-session state:** `yap-family-home` 15 commits this session
+(`9821306`..`094f6bd`), `yap-kiosk-setup` 1 commit (`1d4b4e8`), both pushed
+to `main`. No new companion app build needed for any of tonight's work — all
+of it is backend/dashboard/kiosk-side; the Android/iOS builds dispatched at
+session start still carry the one client-side prerequisite (`7287156`).
 
 ### Outstanding, going into session 36
 
 | item | state | next step |
 |---|---|---|
-| Recurring "except school holidays" | Backend fixed through several real iterations, last live test (before the trailing-cutoff + weekend-entry fixes) looked correct | One more clean end-to-end retest now that everything's deployed — ask for a fresh recurring event and confirm the summary message, card count, and actual calendar result all agree |
 | **Kath's iPhone — full first-time setup** | **Still never done** (carried over 3+ sessions) | Full instructions in session 32's TODO.md entry — idevice_pair → Sideloadly → debug-free IPA → LocalDevVPN → Shortcuts refresh → Bark + Vercel redeploy → overnight-locked verification |
 | Android full retest (baseline, reappearing-call, Test 3, Test 4) | Deferred many session-ends running | Debug-strip build, run clean, in order. Ask Oppo missed-call repro directly. |
 | iOS recurring-delete via ActionSheet | Shipped, unconfirmed whether it actually fixed what Kath saw | Ask directly next time she deletes a recurring event |
 | CIS holidays relay | Working, weekend-entry bug fixed and verified live | Worth a spot-check in a few days that the 08:00 daily run keeps firing unattended (check KioskSetup/relay-cis-holidays.log for a fresh daily entry) |
 | Work computer OneDrive syncing `yap-family-home` | Diagnosed, not fixed (different machine) | Move the repo copy out of the OneDrive-synced folder tree next time at that computer; check `yap-family-companion`/kiosk repos for the same issue there too |
 | iOS upstream Bark PR (locked-phone case) | Not filed | Low-cost PR to Finb/Bark; fall back to accepting as platform limitation if it goes nowhere |
-| Dashboard windowed-boot bug | Self-heals within 5 min, root Edge setting still not disabled | Try edge://settings/system directly, or the elevated policy route |
-| Soundbar flash | Mostly fixed | Low priority, nothing blocked on it |
+| Dashboard windowed-boot / flashing window | Root-caused and fixed this session (Edge StartupBoostEnabled policy) | Not yet confirmed durable — watch `dashboard-watchdog.log` for a few days for any further impostor-window entries |
+| Soundbar audio outage | Fixed and live-verified this session (real endpoint check + v4-then-v2 reconnect layering) | Watch whether the visible v2 flash actually gets rarer in practice now, not just in the one live test tonight |
+| Music playback race condition | Fixed this session (generation-token guard) | No further action unless it recurs — if it does, the improved error banner will now say exactly what failed |
+| Kath's screensaver | Shipped and confirmed live (photo of the real kiosk screen matched the preview) | None — ask if she wants the crop adjusted (currently full-bleed edge-to-edge, no letterbox) or a different Paquin piece once she's lived with it a few days |
 
 Standing rules apply: quiet hours 21:00-07:00 SGT, concrete repro before
 assuming a fix, ask directly rather than guess, keep tracking tables
@@ -130,7 +291,12 @@ current, watch for recurring complaints that mean a past "fix" never held
 structurally. New this session: when a live-tested fix needs several
 iterations, watch shared LLM API quota (Groq TPD / Gemini daily) — repeated
 real conversation-length test calls can exhaust it for the whole family,
-not just the test session.
+not just the test session. Also new: when a "Status=OK"-style health check
+exists, double-check it's actually checking the thing that matters (this
+session found two: Bluetooth pairing status standing in for actual audio
+capability, and Bluetooth PnP status standing in for actual audio again in
+a different script) rather than a nearby proxy that can silently drift out
+of sync with it.
 
 ## Session 34 progress (2026-08-12) — dashboard calendar-picker root-caused, chatbot recurring-event "nightmare" fixed, CIS school holidays now automatic via a Beelink relay
 
