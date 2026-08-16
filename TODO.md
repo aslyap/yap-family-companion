@@ -1,5 +1,194 @@
 # yap-family-companion — Session Handoff
 
+## Session 37 progress (2026-08-16) — dashboard cleanup, calendar/meals/tasks features, deep soundbar investigation (unsolved), chat model migrated off a deprecated Groq model
+
+Picked up session 36 as written, all three repos confirmed matching, no drift
+(one harmless untracked stray file in `yap-family-home/music-server/`, left
+alone). First real task: cleared the Tasks board — 45 rows in the live
+Supabase `tasks` table, mostly real chore history but including two rows
+literally titled "Test". Backed up the full table to a local JSON file
+before deleting, per explicit confirmation, since it's live production data.
+
+**Calendar/Meals/Tasks feature work, `yap-family-home` `0612264`:**
+- Day and Week calendar views only ever positioned events by top/height, so
+  same-time events for different people (or one person double-booked)
+  rendered stacked on top of each other. Added a shared column-layout
+  utility (`src/utils/eventLayout.js`, standard calendar-overlap algorithm)
+  and wired it into both views. Month view doesn't have this bug structurally
+  (dots + a plain list, not stacked blocks), so left alone.
+- Meals gained the same One-off/Recurring pattern Tasks already had (weekday
+  picker, optional end date), with a tap-to-expand calendar for the end date
+  matching Calendar's own `EndDatePicker`. Needed a one-time Supabase
+  migration (`date` nullable, `recurring`/`recurrence_rule`/`end_date`
+  columns added) — already run against production.
+- Removed the vertical divider line between Maddie/Alex/Marj on the Tasks
+  page (pure CSS, one rule).
+- Mirrored the recurring-meals feature into `yap-family-companion`
+  (`608a618`) and added the same tap-to-expand `EndDatePicker` to the
+  recurring-task end date field, which previously had no calendar at all,
+  just a raw `YYYY-MM-DD` text box (`4752359`).
+
+**Marj's tasks now roll forward until done, both repos
+(`yap-family-home` `5c889c9`, `yap-family-companion` `744e30a`):**
+Maddie/Alex's tasks stay exactly as scheduled (points are tied to a specific
+occurrence). Marj's are chores with no reward system, so an incomplete one
+now keeps reappearing on every following day — checked against its actual
+original occurrence date, not whichever day it's being viewed from — until
+marked done or the next natural occurrence arrives, whichever comes first.
+Shows a small "· overdue" label. Caught and fixed a real bug in the first
+draft before shipping (a task completed exactly on time would have vanished
+from its own day), and fixed the companion app's `handleSkipToday`, which
+would have silently broken the rollover by writing against `viewDate`
+instead of the task's real due date.
+
+**Custom time entry added to the companion app's event time picker
+(`yap-family-companion` `1524c84`):** the scroll list only ever offered
+:00/:30 slots, no way to set 11:45 or similar. Added an "Enter a custom
+time" toggle inside the same dropdown (hour/minute/AM-PM fields) alongside
+the existing list, so the common case stays exactly as fast as before. Also
+fixed the auto end-time-bump clamp (was 23:30, matching the old grid's max)
+to 23:59, since a custom start after 22:30 could otherwise compute an end
+time earlier than the start.
+
+**Soundbar reconnect: deep investigation, root cause understood, no working
+invisible fix found.** Long-running problem: reconnecting the Bluetooth
+soundbar without a visible window flash on the kiosk. Session 35 had layered
+an "invisible-first" PnP toggle (`Connect-Soundbar-v4.ps1`) in front of the
+known-reliable-but-visible UI-automation click (`v2`). Live-tested with real
+elevation this session and found v4 never actually worked — confirmed
+Bluetooth pairing recovers but the Windows audio endpoint never does, 35s of
+continuous polling, zero recovery — so it was only adding ~33s of dead
+latency in front of the same flash it never avoided. Removed it
+(`yap-family-home` `8a37d59`).
+
+Chased six more angles, all live-tested and disproven, all documented in
+`KioskSetup/scripts/Connect-Soundbar-v4.ps1`'s header and
+`KioskSetup/scripts/Diag-*.ps1` so nobody repeats them blind: toggling the
+specific A2DP MEDIA-class device instead of the base Bluetooth device,
+`Restart-Service BTAGService`, `Restart-Service AudioEndpointBuilder`, the
+real `BluetoothSetServiceState` Win32 API via direct P/Invoke (not just the
+`Disable-PnpDevice` cmdlet layer — a genuinely different API, also failed),
+and `BluetoothEnableDiscovery`/`BluetoothEnableIncomingConnections` (the
+documented Win32 wrapper, tested with a verified-continuous 30s window, also
+failed). Along the way, discovered the soundbar is **shared with the living
+room TV** — only one device can hold the connection at a time, and the
+"endpoint silently gone" symptom this whole investigation chased may often
+just be the TV legitimately in use, not a fault. Confirmed `v2` can pull the
+connection away from the TV (with explicit permission each time), but not
+reliably — worked twice, then failed three times in a row against active TV
+contention.
+
+Installed Wireshark (legitimate, signed, verified Authenticode chain to
+Microsoft — explicitly declined a different AI-suggested third-party tool,
+`btcom.exe`, after verifying its real documented purpose is COM-port mapping
+for RFCOMM, not A2DP) to help interpret an ETW/HCI capture of a real working
+`v2` click. Decoded the actual HCI wire traffic (via built-in `netsh trace
+convert`, not Wireshark directly — the raw `.etl` wasn't in a format
+`tshark` recognized): the whole thing is just `HCI_Write_Scan_Enable` +
+`HCI_Write_Local_Name`, no `HCI_Create_Connection` to the soundbar at all.
+Theory: the soundbar decides to reconnect on its own once it notices the PC
+is scannable, not something the PC forces — which would also explain the
+observed unreliability. Tested this theory directly via the documented
+`BluetoothEnableDiscovery` API (last paragraph above) — disproven. **Still
+unsolved.** The one remaining untried, genuinely bigger step: a raw HCI
+IOCTL replaying the exact captured bytes, bypassing even the documented Win32
+wrapper — undocumented driver-level territory, real risk of destabilizing
+the whole Bluetooth stack if wrong, not attempted. Full write-up with every
+round's evidence: `soundbar-reconnect-for-gemini.md` (this session's
+scratchpad, not committed to any repo — ask if you want it moved somewhere
+durable).
+
+**Chat model migrated off a deprecated Groq model, `yap-family-home`
+`2dc72d8` → `5dd100f`.** `llama-3.3-70b-versatile` (the model in production)
+was deprecated by Groq (announced 2026-06-17, cutoff "by August 2026" — i.e.
+now). Built a real test harness (`/api/chat/model-bakeoff`, live on the
+deployed backend) that fires the exact production tool schema at each real
+candidate and checks whether the right tool actually gets called with
+correct arguments, rather than trusting docs/benchmarks — this project has
+been burned by that twice already (Gemini's real ~20 req/day on this
+account vs. published 250-1,500/day; `gpt-oss-120b`'s own June revert for
+"unreliable tool calling," see commit `594687e` from that session).
+
+`openai/gpt-oss-120b` passed 4/4 on the bake-off, including a deliberately
+hard case (recurring event + school-holiday exclusion) that's documented
+history as something Llama got wrong live. Switched to it (`f2d0037`),
+deployed, then immediately caught two real bugs in production testing
+rather than declaring victory from the bake-off alone:
+1. The Groq connectivity smoke test silently returned an *empty* response
+   while still reporting success — `gpt-oss-120b` is a reasoning model that
+   spends tokens on hidden reasoning before any visible output, and the old
+   `max_tokens=10` (fine for Llama) left zero room for that. Fixed
+   (`2518caa`).
+2. Asked the live `/api/chat` "what's on the calendar tomorrow" (today
+   confirmed Sunday 2026-08-16) and got back the right events/times/people
+   but the date labelled **"tomorrow (Sunday 17 August 2026)"** — August 17
+   is a Monday. Standard mitigation: don't make the model compute weekdays
+   from latent knowledge, inject a computed 14-day date→weekday map into the
+   system prompt instead (`_week_reference`, `5dd100f`). Re-tested the exact
+   failing query after the fix: correct, and incidentally ~16x faster
+   (45.6s → 2.9s) from also adding `reasoning_effort="low"` as a real Groq
+   API parameter (verified against Groq's own docs — not just a system-prompt
+   suggestion, which an AI second opinion had wrongly proposed) — each call in
+   the up-to-6-iteration agentic loop burns its own reasoning tokens against
+   Groq's tight ~12k TPM budget regardless of message history.
+
+Researched free alternatives before settling: **Cerebras** looked
+promising from public docs (generous daily limits, hosts `gpt-oss-120b` on
+different hardware) but turned out to need real paid credits for this
+account despite "no card needed" marketing — the actual current offer is a
+one-time $5 signup credit, not a recurring free tier, and this account
+showed $0.00 balance (every call 402'd). Ruled out. **Together AI** isn't
+genuinely free anymore either (one-time credit at best, some sources say
+retired). **OpenRouter** has a real free tier but its free models rotate and
+disappear without warning — structurally the worst fit for a project that's
+already been burned repeatedly by exactly that failure mode. **Mistral**
+is the one genuinely-recurring free option left completely untested
+(phone verification required, labelled "evaluation only," but no card) —
+worth a look later if `gpt-oss-120b` doesn't hold up over the next few days
+of real use.
+
+**Standing instruction, new this session:** dispatch all future Android/iOS
+builds with `show_debug=false` unless debugging is explicitly the point —
+prior default (`show_debug=true`) left the visible green debug strip in
+builds meant for normal use. Two builds dispatched with the fix, Android
+`31938375125` / iOS `31938376295`, from commit `1524c84` (includes the
+custom time entry + Marj rollover + everything else this session) —
+confirmed live in the Actions log (`EXPO_PUBLIC_SHOW_CALL_DEBUG: false`).
+This is the correct, current build to install.
+
+**User's explicit priority call, end of session:** the video-calling feature
+(reappearing-call bug, Test 3/4 — see the outstanding table) is *not* the
+priority right now. UX polish as Kath actually uses the app day-to-day is.
+
+### Outstanding, going into session 38
+
+| item | state | next step |
+|---|---|---|
+| **Kath's iPhone — full first-time setup** | **Still never done** (carried over 4+ sessions) | Full instructions in session 32's TODO.md entry — idevice_pair → Sideloadly → debug-free IPA → LocalDevVPN → Shortcuts refresh → Bark + Vercel redeploy → overnight-locked verification |
+| **UX polish from Kath's real usage** | **New top priority per explicit user direction this session** | No concrete items yet — watch/ask for friction points as she uses the app more, rather than working from a pre-set list |
+| Soundbar invisible reconnect | Deeply investigated, root cause understood (soundbar decides to reconnect, not the PC), **no working invisible fix found** — 7 techniques tried and disproven live | Only remaining untried path is a raw HCI IOCTL (real driver-level risk) — otherwise accept `v2`'s visible flash as the reliable method. Full evidence in this session's scratchpad `soundbar-reconnect-for-gemini.md` |
+| Chat model (`gpt-oss-120b` on Groq) | Switched from deprecated `llama-3.3-70b-versatile`, two real bugs found and fixed live (empty responses, day-of-week errors), 4/4 on bake-off | Watch live for a few days per usual pattern — don't just trust the bake-off. Mistral untested if this doesn't hold up |
+| Android full retest (baseline, reappearing-call, Test 3, Test 4) | **Explicitly deprioritized this session** — carried over many sessions before that | Not urgent per user direction — pick up only if it becomes the actual friction point, or Kath/Adrian hit it live |
+| Dashboard windowed-boot / flashing window | Fixed session 35, not yet re-confirmed durable | Spot-check `dashboard-watchdog.log` for any further impostor-window entries — not done this session |
+| Music playback "error" banner | Fixed session 36 | Watch for recurrence — not checked this session |
+| CIS holidays relay | Working as of session 35 | Spot-check `relay-cis-holidays.log` for daily 08:00 runs — not done this session |
+| iOS recurring-delete via ActionSheet | Shipped session 35/36, unconfirmed whether it fixed what Kath actually saw | Ask directly next time she deletes a recurring event |
+| iOS upstream Bark PR (locked-phone case) | Not filed | Low-cost PR to Finb/Bark; fall back to accepting as platform limitation if it goes nowhere |
+| Work computer OneDrive syncing `yap-family-home` | Diagnosed, not fixed (different machine) | Move the repo copy out of the OneDrive-synced folder tree next time at that computer |
+
+Standing rules apply: quiet hours 21:00-07:00 SGT, concrete repro before
+assuming a fix, ask directly rather than guess, keep tracking tables
+current. New this session: verify AI-suggested tool names and specific
+numeric claims (rate limits, pricing, deprecation dates) independently
+before acting — three separate cases this session where a second opinion's
+confident-sounding specifics didn't hold up (a fabricated-sounding but
+actually-real tool with the wrong claimed purpose; wrong Gemini pricing plus
+an undisclosed deprecation date; a system-prompt suggestion where a real API
+parameter existed instead). Also new: when live-testing something that
+shares a physical device with another real user (the soundbar/TV), ask
+before every disruptive attempt, not just the first — proven connection
+methods were NOT 100% reliable against real contention in practice.
+
 ## Session 36 progress (2026-08-14) — the music "error" from session 35 was never a real playback failure; found the actual mechanism and fixed it
 
 Direct continuation of session 35's music-playback investigation, picked up
