@@ -65,6 +65,141 @@ function formatDateNav(ds) {
   return d.toLocaleDateString('en-SG', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
+function getMonthGrid(year, month0) {
+  const firstDay = new Date(year, month0, 1);
+  const dow = firstDay.getDay();
+  const offset = dow === 0 ? -6 : 1 - dow;
+  const start = new Date(year, month0, 1 + offset);
+  const lastDay = new Date(year, month0 + 1, 0);
+  const cells = Math.ceil((Math.abs(offset) + lastDay.getDate()) / 7) * 7;
+  return Array.from({ length: cells }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return makeDateStr(d);
+  });
+}
+
+// Shared month-navigation state for EndDatePicker below — same technique as
+// CalendarTab.js's useCalendarNav / MealsTab.js's own copy of it.
+function useCalendarNav(initialValue) {
+  const initial = initialValue ? new Date(initialValue + 'T12:00:00') : new Date();
+  const [viewYear, setViewYear] = useState(initial.getFullYear());
+  const [viewMonth0, setViewMonth0] = useState(initial.getMonth());
+
+  function changeMonth(delta) {
+    let y = viewYear, m = viewMonth0 + delta;
+    if (m < 0) { m = 11; y -= 1; }
+    if (m > 11) { m = 0; y += 1; }
+    setViewYear(y);
+    setViewMonth0(m);
+  }
+
+  return { viewYear, viewMonth0, changeMonth };
+}
+
+const WEEKDAY_SHORT = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+
+function MiniCalendarGrid({ viewYear, viewMonth0, selectedValue, onSelectDay, onPrevMonth, onNextMonth }) {
+  const today = todayStr();
+  const grid = getMonthGrid(viewYear, viewMonth0);
+  const monthLabel = new Date(viewYear, viewMonth0, 1)
+    .toLocaleDateString('en-SG', { month: 'long', year: 'numeric' })
+    .toUpperCase();
+
+  return (
+    <>
+      <View style={styles.calMonthRow}>
+        <TouchableOpacity onPress={onPrevMonth} hitSlop={10}>
+          <Text style={styles.calArrow}>‹</Text>
+        </TouchableOpacity>
+        <Text style={styles.calMonthLabel}>{monthLabel}</Text>
+        <TouchableOpacity onPress={onNextMonth} hitSlop={10}>
+          <Text style={styles.calArrow}>›</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.calGrid}>
+        {WEEKDAY_SHORT.map(d => (
+          <Text key={d} style={styles.calWeekday}>{d}</Text>
+        ))}
+        {grid.map((ds, i) => {
+          const d       = new Date(ds + 'T12:00:00');
+          const inMonth = d.getMonth() === viewMonth0;
+          const isToday = ds === today;
+          const isSel   = ds === selectedValue;
+          return (
+            <TouchableOpacity
+              key={i}
+              style={styles.calDayCell}
+              onPress={() => onSelectDay(ds)}
+              activeOpacity={0.7}
+            >
+              <View style={[
+                styles.calDayCircle,
+                isToday && styles.calDayToday,
+                isSel && !isToday && styles.calDaySelected,
+              ]}>
+                <Text style={[
+                  styles.calDayText,
+                  !inMonth && styles.calDayOtherMonth,
+                  (isToday || isSel) && styles.calDayTextOnColor,
+                ]}>
+                  {d.getDate()}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </>
+  );
+}
+
+// Tap-to-expand inline calendar for a recurring task's end date, replacing a
+// typed YYYY-MM-DD field — same UX as CalendarTab.js's EndDatePicker.
+function EndDatePicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const { viewYear, viewMonth0, changeMonth } = useCalendarNav(value);
+
+  return (
+    <View>
+      <TouchableOpacity
+        style={[styles.enddateField, open && styles.enddateFieldOpen]}
+        onPress={() => setOpen(o => !o)}
+        activeOpacity={0.7}
+      >
+        <Text style={[styles.enddateValue, !!value && styles.enddateValueSet]}>
+          {value
+            ? new Date(value + 'T12:00:00').toLocaleDateString('en-SG', {
+                weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+              })
+            : 'Add end date'}
+        </Text>
+        <Text style={styles.enddateChevron}>{open ? '▲' : '▼'}</Text>
+      </TouchableOpacity>
+
+      {open && (
+        <View style={styles.calPanel}>
+          <MiniCalendarGrid
+            viewYear={viewYear}
+            viewMonth0={viewMonth0}
+            selectedValue={value}
+            onSelectDay={ds => { onChange(ds); setOpen(false); }}
+            onPrevMonth={() => changeMonth(-1)}
+            onNextMonth={() => changeMonth(1)}
+          />
+          <View style={styles.calFooter}>
+            <TouchableOpacity onPress={() => { onChange(''); setOpen(false); }} disabled={!value}>
+              <Text style={[styles.calClear, !value && styles.calClearDisabled]}>Clear end date</Text>
+            </TouchableOpacity>
+            <Text style={styles.calHint}>tap a date to set it</Text>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
 // ─── reducer ─────────────────────────────────────────────────────────────────
 
 function tasksReducer(state, action) {
@@ -339,13 +474,7 @@ function AddTaskSheet({ visible, defaultDate, onClose, onSave }) {
                   </View>
 
                   <Text style={styles.fieldLabel}>End date <Text style={{ color: COLORS.textSecondary }}>(optional)</Text></Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor={COLORS.textSecondary}
-                    value={form.end_date}
-                    onChangeText={v => set('end_date', v)}
-                  />
+                  <EndDatePicker value={form.end_date} onChange={v => set('end_date', v)} />
                 </>
               )}
 
@@ -844,6 +973,50 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontFamily: FONTS.bodyMedium,
   },
+  // ─── EndDatePicker ──
+  enddateField: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 12, backgroundColor: COLORS.background,
+  },
+  enddateFieldOpen: { borderColor: COLORS.family },
+  enddateValue: { fontFamily: FONTS.body, fontSize: 15, color: COLORS.textSecondary },
+  enddateValueSet: { color: COLORS.text, fontFamily: FONTS.bodyMedium },
+  enddateChevron: { fontSize: 11, color: COLORS.textSecondary },
+  calPanel: {
+    borderWidth: 1, borderColor: COLORS.border, borderTopWidth: 0,
+    borderBottomLeftRadius: 8, borderBottomRightRadius: 8,
+    paddingHorizontal: 10, paddingTop: 8, paddingBottom: 10,
+  },
+  calMonthRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 6,
+  },
+  calArrow: { fontFamily: FONTS.body, fontSize: 16, color: COLORS.alex, paddingHorizontal: 10 },
+  calMonthLabel: { fontFamily: FONTS.heading, fontSize: 11, letterSpacing: 0.5, color: COLORS.text },
+  calGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  calWeekday: {
+    width: '14.2857%',
+    fontFamily: FONTS.heading, fontSize: 10, letterSpacing: 0.5,
+    color: COLORS.textSecondary, textAlign: 'center', paddingBottom: 4,
+  },
+  calDayCell: { width: '14.2857%', alignItems: 'center', paddingVertical: 3 },
+  calDayCircle: {
+    width: 26, height: 26, borderRadius: 13,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  calDayToday: { backgroundColor: COLORS.timeIndicator },
+  calDaySelected: { backgroundColor: COLORS.family },
+  calDayText: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.text },
+  calDayOtherMonth: { color: COLORS.border },
+  calDayTextOnColor: { color: '#fff', fontFamily: FONTS.headingBold },
+  calFooter: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border,
+  },
+  calClear: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.family },
+  calClearDisabled: { color: COLORS.border },
+  calHint: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.textSecondary },
   errorText: {
     color: '#dc2626',
     fontFamily: FONTS.body,
