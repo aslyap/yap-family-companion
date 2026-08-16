@@ -1,5 +1,93 @@
 # yap-family-companion — Session Handoff
 
+## Session 36 progress (2026-08-14) — the music "error" from session 35 was never a real playback failure; found the actual mechanism and fixed it
+
+Direct continuation of session 35's music-playback investigation, picked up
+after the user rejected a rate-limiting/throttling guess outright ("You're
+guessing. Get me an answer") and gave the key clue that broke it open: the
+failure was **consistent**, not random — one song plays, auto-advance (or a
+replay) shows the error, picking a *different* song always works. Random CDN
+throttling can't explain a pattern that consistent, and the user said so
+before I'd finished checking.
+
+**Ruled out throttling with a real reproduction, not more guessing.** Set up
+a local Playwright harness (headless Chromium against the actual dev
+frontend + the real music server, not a mock) that plays a track, force-
+advances near its end, and lets the queue auto-advance for real — hooked
+`window.Audio` via `addEventListener` (an earlier attempt using
+`Object.defineProperty` on `onended`/`onerror` silently broke the browser's
+real event dispatch entirely — caught and fixed before it produced a false
+negative) to log every media-element event with full state. First run
+completed cleanly end-to-end, proving the auto-advance code path isn't
+structurally broken — the real bug had to be somewhere the synthetic test
+wasn't hitting.
+
+**Shipped temporary production diagnostics instead of continuing to guess
+blind.** Added `POST /client-log` to `server.py` (prints to `server.log`,
+already tailed by the scheduled task) and wired `useMusicPlayer.js` to post
+from every branch — `onended`, fetch success/fail, play success/fail/retry,
+and critically the `<audio>` element's own native `error` event, each
+tagged `source: 'manual' | 'auto-advance'`. Restarted `Yap-Music-Server` so
+it took effect immediately. `yap-family-home` `1b9384a`.
+
+**Root cause, from real `server.log` evidence within minutes of shipping
+the diagnostics:** a first-attempt stream URL fails to load
+(`errorCode: 4`, `NotSupportedError`) — and this fires **two independent,
+uncoordinated things** off the exact same failure: (1) `attemptPlayback`'s
+own `catch` block, which already retries once with a freshly-fetched URL
+(session 35's earlier fix) and almost always succeeds, and (2) the
+`<audio>` element's separate native `error` event, whose handler sets the
+red error banner unconditionally with no awareness that a retry is already
+in flight. The retry succeeds and music actually plays — confirmed by a
+screenshot showing the track visibly playing (pause icon, progress
+advancing, volume audible) *while the stale banner sat on screen* — but
+nothing ever cleared the banner once the retry worked, because the only
+place that cleared `error` was the *start* of a brand-new `playByIndex`
+call. That's exactly why picking a different song always "fixed" it (new
+`playByIndex` → `setError(null)`) and why going back to the original track
+then loaded fine (same reason) — the music was never actually broken a
+third time; the UI was just lying about it after a successful self-heal.
+
+**Fix:** clear the error banner at the point `attemptPlayback` itself
+confirms a successful play (`play-ok`), not just at the top of a new
+`playByIndex` call — closes the gap the retry logic was silently falling
+into. `yap-family-home` `68cd4d3`.
+
+**End-of-session state:** `yap-family-home` 2 commits (`1b9384a`,
+`68cd4d3`), pushed to `main`. The `/client-log` diagnostic endpoint and its
+client-side calls are intentionally left in place (harmless, fire-and-
+forget, tiny volume) as an early-warning net in case this class of bug
+recurs a fourth time with a different mechanism — worth stripping out once
+a few weeks pass with no further "phantom error" reports, but not urgent.
+
+### Outstanding, going into session 37
+
+| item | state | next step |
+|---|---|---|
+| **Kath's iPhone — full first-time setup** | **Still never done** (carried over 3+ sessions) | Full instructions in session 32's TODO.md entry — idevice_pair → Sideloadly → debug-free IPA → LocalDevVPN → Shortcuts refresh → Bark + Vercel redeploy → overnight-locked verification |
+| Android full retest (baseline, reappearing-call, Test 3, Test 4) | Deferred many session-ends running | Debug-strip build, run clean, in order. Ask Oppo missed-call repro directly. |
+| iOS recurring-delete via ActionSheet | Shipped, unconfirmed whether it actually fixed what Kath saw | Ask directly next time she deletes a recurring event |
+| CIS holidays relay | Working, weekend-entry bug fixed and verified live | Worth a spot-check that the 08:00 daily run keeps firing unattended (check KioskSetup/relay-cis-holidays.log for a fresh daily entry) |
+| Work computer OneDrive syncing `yap-family-home` | Diagnosed, not fixed (different machine) | Move the repo copy out of the OneDrive-synced folder tree next time at that computer; check `yap-family-companion`/kiosk repos for the same issue there too |
+| iOS upstream Bark PR (locked-phone case) | Not filed | Low-cost PR to Finb/Bark; fall back to accepting as platform limitation if it goes nowhere |
+| Dashboard windowed-boot / flashing window | Fixed session 35 (Edge `StartupBoostEnabled` policy) | Not yet confirmed durable — watch `dashboard-watchdog.log` for a few days for any further impostor-window entries |
+| Soundbar audio outage | Fixed and live-verified session 35 (real endpoint check + v4-then-v2 reconnect layering) | Watch whether the visible v2 flash actually gets rarer in practice, not just in one live test |
+| Music playback "error" banner | **Root-caused and fixed this session** — was a stale UI banner left over from an already-successful retry, not a real playback failure | Watch for a few days; if the banner reappears while a track is audibly playing, that's this exact bug back (check `server.log`'s `/client-log` entries first, evidence is already wired up) |
+| Kath's screensaver | Shipped and confirmed live (photo of the real kiosk screen matched the preview) | None — ask if she wants the crop adjusted (currently full-bleed edge-to-edge, no letterbox) or a different Paquin piece once she's lived with it a few days |
+
+Standing rules apply: quiet hours 21:00-07:00 SGT, concrete repro before
+assuming a fix, ask directly rather than guess, keep tracking tables
+current, watch for recurring complaints that mean a past "fix" never held
+structurally. New this session: when a user says a failure pattern is
+*consistent* rather than random, believe them over a plausible-sounding
+"external service is flaky" theory — the real cause here was 100%
+deterministic (a UI state bug) masquerading as intermittent CDN flakiness
+because the underlying retry usually succeeded. Also new: a live-instrumented
+production log (temporary, targeted, removed once no longer needed) beat
+both a synthetic reproduction and further direct code reading — when a bug
+resists diagnosis from reading code alone, shipping cheap real-evidence
+logging is often faster than one more hypothesis.
+
 ## Session 35 progress (2026-08-12 to 2026-08-14) — recurring "except school holidays" shipped end-to-end, Kath's screensaver replaced with an AI-upscaled Paquin piece, the dashboard's recurring flashing window and a real soundbar audio outage both root-caused and fixed, a live music-playback race condition found and fixed
 
 Picked up session 34 as written, all three repos confirmed matching, no drift.
