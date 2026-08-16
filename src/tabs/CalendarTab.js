@@ -3,7 +3,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Modal, TextInput, KeyboardAvoidingView, Platform,
-  ActivityIndicator, Alert, ActionSheetIOS, Image, Dimensions, Pressable,
+  ActivityIndicator, Alert, ActionSheetIOS, Image, useWindowDimensions, Pressable,
   RefreshControl, FlatList,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,7 +13,6 @@ import { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } from '.
 
 // ─── layout constants ─────────────────────────────────────────────────────────
 
-const { width: SCREEN_W } = Dimensions.get('window');
 const H_PAD      = 12;
 const TIMELINE_W = 40;
 const HOUR_H     = 30;
@@ -21,12 +20,13 @@ const GRID_START = 6;
 const GRID_END   = 20;
 const GRID_HOURS = Array.from({ length: GRID_END - GRID_START }, (_, i) => GRID_START + i);
 const GRID_H     = GRID_HOURS.length * HOUR_H;
-
-const CONTENT_W    = SCREEN_W - 2 * H_PAD;
-const MONTH_CELL_W = Math.floor(CONTENT_W / 7);
 const MONTH_CELL_H = 58;
-const WEEK_COL_W   = Math.floor((CONTENT_W - TIMELINE_W) / 7);
-const DAY_COL_W    = Math.floor((CONTENT_W - TIMELINE_W) / 3);
+
+// Column/cell widths derive from the *current* window width via
+// useWindowDimensions() in CalendarTab and get passed down as props — not
+// computed once from Dimensions.get('window') at module load, which stays
+// stale across a foldable's fold/unfold (e.g. Oppo Find N5 outer vs. inner
+// screen) since nothing re-evaluates a plain top-level const on resize.
 
 // ─── people ───────────────────────────────────────────────────────────────────
 
@@ -311,7 +311,7 @@ function GridLines() {
 
 // ─── MonthView ────────────────────────────────────────────────────────────────
 
-function MonthView({ events, year, month0, selectedDate, onSelectDate, onEventPress }) {
+function MonthView({ events, year, month0, selectedDate, onSelectDate, onEventPress, cellW }) {
   const today = todayStr();
   const grid  = getMonthGrid(year, month0);
 
@@ -333,7 +333,7 @@ function MonthView({ events, year, month0, selectedDate, onSelectDate, onEventPr
     <View>
       <View style={styles.monthHeaderRow}>
         {WEEKDAY_SHORT.map(d => (
-          <Text key={d} style={[styles.monthWeekdayLabel, { width: MONTH_CELL_W }]}>{d}</Text>
+          <Text key={d} style={[styles.monthWeekdayLabel, { width: cellW }]}>{d}</Text>
         ))}
       </View>
 
@@ -348,7 +348,7 @@ function MonthView({ events, year, month0, selectedDate, onSelectDate, onEventPr
           return (
             <TouchableOpacity
               key={i}
-              style={[styles.monthCell, { width: MONTH_CELL_W, height: MONTH_CELL_H }, isSel && styles.monthCellSelected]}
+              style={[styles.monthCell, { width: cellW, height: MONTH_CELL_H }, isSel && styles.monthCellSelected]}
               onPress={() => onSelectDate(ds)}
               activeOpacity={0.7}
             >
@@ -407,7 +407,7 @@ function MonthView({ events, year, month0, selectedDate, onSelectDate, onEventPr
 
 // ─── WeekView ─────────────────────────────────────────────────────────────────
 
-function WeekView({ events, weekDates, onEventPress, onRefresh, refreshing }) {
+function WeekView({ events, weekDates, onEventPress, onRefresh, refreshing, colW }) {
   const today    = todayStr();
   const tiTop    = getTimeLinePct();
   const scrollRef = useRef(null);
@@ -424,7 +424,7 @@ function WeekView({ events, weekDates, onEventPress, onRefresh, refreshing }) {
           const d = new Date(ds + 'T12:00:00');
           const isToday = ds === today;
           return (
-            <View key={ds} style={[styles.weekColHeader, { width: WEEK_COL_W }]}>
+            <View key={ds} style={[styles.weekColHeader, { width: colW }]}>
               <Text style={[styles.weekColDow, isToday && { color: COLORS.timeIndicator }]}>
                 {WEEKDAY_SHORT[i]}
               </Text>
@@ -454,7 +454,7 @@ function WeekView({ events, weekDates, onEventPress, onRefresh, refreshing }) {
             {weekDates.map(ds => {
               const dayEvents = eventsOnDate(events, ds).filter(ev => !ev.allDay);
               return (
-                <View key={ds} style={{ width: WEEK_COL_W, position: 'relative', borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: COLORS.border }}>
+                <View key={ds} style={{ width: colW, position: 'relative', borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: COLORS.border }}>
                   {dayEvents.map(ev => {
                     const top = eventTop(ev.startTime);
                     if (top === null) return null;
@@ -492,7 +492,7 @@ function WeekView({ events, weekDates, onEventPress, onRefresh, refreshing }) {
 
 // ─── DayView ──────────────────────────────────────────────────────────────────
 
-function DayView({ events, dateStr, onEventPress, onRefresh, refreshing }) {
+function DayView({ events, dateStr, onEventPress, onRefresh, refreshing, colW }) {
   const today   = todayStr();
   const isToday = dateStr === today;
   const tiTop   = isToday ? getTimeLinePct() : -1;
@@ -534,7 +534,7 @@ function DayView({ events, dateStr, onEventPress, onRefresh, refreshing }) {
               );
               const laid = layoutOverlappingEvents(col);
               return (
-                <View key={p.key} style={{ width: DAY_COL_W, position: 'relative', borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: COLORS.border }}>
+                <View key={p.key} style={{ width: colW, position: 'relative', borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: COLORS.border }}>
                   {laid.map(ev => {
                     const top = eventTop(ev.startTime);
                     if (top === null) return null;
@@ -1243,6 +1243,12 @@ function NavMiniCalendar({ selectedDate, onSelect }) {
 
 export default function CalendarTab() {
   const insets = useSafeAreaInsets();
+  const { width: screenW } = useWindowDimensions();
+
+  const contentW   = screenW - 2 * H_PAD;
+  const monthCellW = Math.floor(contentW / 7);
+  const weekColW   = Math.floor((contentW - TIMELINE_W) / 7);
+  const dayColW    = Math.floor((contentW - TIMELINE_W) / 3);
 
   const [view,          setView]          = useState('day');
   const [selectedDate,  setSelectedDate]  = useState(() => todayStr());
@@ -1401,6 +1407,7 @@ export default function CalendarTab() {
             selectedDate={selectedDate}
             onSelectDate={setSelectedDate}
             onEventPress={handleEventPress}
+            cellW={monthCellW}
           />
           <View style={{ height: 80 }} />
         </ScrollView>
@@ -1413,6 +1420,7 @@ export default function CalendarTab() {
           onEventPress={handleEventPress}
           onRefresh={onRefresh}
           refreshing={refreshing}
+          colW={weekColW}
         />
       )}
 
@@ -1421,6 +1429,7 @@ export default function CalendarTab() {
           events={events}
           dateStr={selectedDate}
           onEventPress={handleEventPress}
+          colW={dayColW}
           onRefresh={onRefresh}
           refreshing={refreshing}
         />
