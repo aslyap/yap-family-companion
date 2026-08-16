@@ -7,12 +7,23 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, FONTS } from '../theme';
-import { fetchMealsForDates, upsertMeal, deleteMeal } from '../services/mealsService';
+import {
+  fetchMealsForDates, upsertMeal, addRecurringMeal, updateRecurringMeal, deleteMeal,
+  mealFor as resolveMeal,
+} from '../services/mealsService';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
 const DAY_COL = 38;
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+// Same ids/convention as TasksTab.js's recurring day picker.
+const RECUR_WEEKDAYS = [
+  { id: 'mon', label: 'Mo' }, { id: 'tue', label: 'Tu' },
+  { id: 'wed', label: 'We' }, { id: 'thu', label: 'Th' },
+  { id: 'fri', label: 'Fr' }, { id: 'sat', label: 'Sa' },
+  { id: 'sun', label: 'Su' },
+];
 
 // Breakfast uses meal_type 'breakfast' — ensure your Supabase meals table allows this value.
 // If you have a CHECK constraint limiting to ('lunch','dinner'), run:
@@ -97,21 +108,149 @@ function formatWeekRange(dates) {
   return `${fmt(dates[0])} – ${fmt(dates[6])}`;
 }
 
+function getMonthGrid(year, month0) {
+  const firstDay = new Date(year, month0, 1);
+  const dow = firstDay.getDay();
+  const offset = dow === 0 ? -6 : 1 - dow;
+  const start = new Date(year, month0, 1 + offset);
+  const lastDay = new Date(year, month0 + 1, 0);
+  const cells = Math.ceil((Math.abs(offset) + lastDay.getDate()) / 7) * 7;
+  return Array.from({ length: cells }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return makeDateStr(d);
+  });
+}
+
+// Shared month-navigation state for EndDatePicker below — same technique as
+// CalendarTab.js's useCalendarNav.
+function useCalendarNav(initialValue) {
+  const initial = initialValue ? new Date(initialValue + 'T12:00:00') : new Date();
+  const [viewYear, setViewYear] = useState(initial.getFullYear());
+  const [viewMonth0, setViewMonth0] = useState(initial.getMonth());
+
+  function changeMonth(delta) {
+    let y = viewYear, m = viewMonth0 + delta;
+    if (m < 0) { m = 11; y -= 1; }
+    if (m > 11) { m = 0; y += 1; }
+    setViewYear(y);
+    setViewMonth0(m);
+  }
+
+  return { viewYear, viewMonth0, changeMonth };
+}
+
+const WEEKDAY_SHORT = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+
+function MiniCalendarGrid({ viewYear, viewMonth0, selectedValue, onSelectDay, onPrevMonth, onNextMonth }) {
+  const today = todayStr();
+  const grid = getMonthGrid(viewYear, viewMonth0);
+  const monthLabel = new Date(viewYear, viewMonth0, 1)
+    .toLocaleDateString('en-SG', { month: 'long', year: 'numeric' })
+    .toUpperCase();
+
+  return (
+    <>
+      <View style={styles.calMonthRow}>
+        <TouchableOpacity onPress={onPrevMonth} hitSlop={10}>
+          <Text style={styles.calArrow}>‹</Text>
+        </TouchableOpacity>
+        <Text style={styles.calMonthLabel}>{monthLabel}</Text>
+        <TouchableOpacity onPress={onNextMonth} hitSlop={10}>
+          <Text style={styles.calArrow}>›</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.calGrid}>
+        {WEEKDAY_SHORT.map(d => (
+          <Text key={d} style={styles.calWeekday}>{d}</Text>
+        ))}
+        {grid.map((ds, i) => {
+          const d       = new Date(ds + 'T12:00:00');
+          const inMonth = d.getMonth() === viewMonth0;
+          const isToday = ds === today;
+          const isSel   = ds === selectedValue;
+          return (
+            <TouchableOpacity
+              key={i}
+              style={styles.calDayCell}
+              onPress={() => onSelectDay(ds)}
+              activeOpacity={0.7}
+            >
+              <View style={[
+                styles.calDayCircle,
+                isToday && styles.calDayToday,
+                isSel && !isToday && styles.calDaySelected,
+              ]}>
+                <Text style={[
+                  styles.calDayText,
+                  !inMonth && styles.calDayOtherMonth,
+                  (isToday || isSel) && styles.calDayTextOnColor,
+                ]}>
+                  {d.getDate()}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </>
+  );
+}
+
+// Tap-to-expand inline calendar for a recurring series' end date, replacing a
+// typed YYYY-MM-DD field — same UX as CalendarTab.js's EndDatePicker.
+function EndDatePicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const { viewYear, viewMonth0, changeMonth } = useCalendarNav(value);
+
+  return (
+    <View>
+      <TouchableOpacity
+        style={[styles.enddateField, open && styles.enddateFieldOpen]}
+        onPress={() => setOpen(o => !o)}
+        activeOpacity={0.7}
+      >
+        <Text style={[styles.enddateValue, !!value && styles.enddateValueSet]}>
+          {value
+            ? new Date(value + 'T12:00:00').toLocaleDateString('en-SG', {
+                weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+              })
+            : 'Add end date'}
+        </Text>
+        <Text style={styles.enddateChevron}>{open ? '▲' : '▼'}</Text>
+      </TouchableOpacity>
+
+      {open && (
+        <View style={styles.calPanel}>
+          <MiniCalendarGrid
+            viewYear={viewYear}
+            viewMonth0={viewMonth0}
+            selectedValue={value}
+            onSelectDay={ds => { onChange(ds); setOpen(false); }}
+            onPrevMonth={() => changeMonth(-1)}
+            onNextMonth={() => changeMonth(1)}
+          />
+          <View style={styles.calFooter}>
+            <TouchableOpacity onPress={() => { onChange(''); setOpen(false); }} disabled={!value}>
+              <Text style={[styles.calClear, !value && styles.calClearDisabled]}>Clear end date</Text>
+            </TouchableOpacity>
+            <Text style={styles.calHint}>tap a date to set it</Text>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
 // ─── reducer ─────────────────────────────────────────────────────────────────
 
 function mealsReducer(state, action) {
   switch (action.type) {
-    case 'set': return action.meals;
-    case 'upsert': {
-      const rest = state.filter(m => !(
-        m.date === action.meal.date &&
-        m.person === action.meal.person &&
-        m.meal_type === action.meal.meal_type
-      ));
-      return [...rest, action.meal];
-    }
+    case 'set':    return action.meals;
+    case 'upsert': return [...state.filter(m => m.id !== action.meal.id), action.meal];
     case 'delete': return state.filter(m => m.id !== action.id);
-    default: return state;
+    default:       return state;
   }
 }
 
@@ -120,22 +259,41 @@ function mealsReducer(state, action) {
 function EditMealSheet({ visible, meal, col, onClose, onSave, onDelete }) {
   const insets = useSafeAreaInsets();
   const [dishName, setDishName] = useState('');
+  const [recurring, setRecurring] = useState(false);
+  const [selectedDays, setSelectedDays] = useState([]);
+  const [endDate, setEndDate] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (visible) {
       setDishName(meal?.dish_name || '');
+      setRecurring(meal?.recurring || false);
+      setSelectedDays(
+        meal?.recurring && meal.recurrence_rule && meal.recurrence_rule !== 'daily'
+          ? meal.recurrence_rule.split(',').map(d => d.trim())
+          : []
+      );
+      setEndDate(meal?.end_date || '');
       setError('');
       setSaving(false);
     }
   }, [visible, meal]);
 
+  function toggleDay(id) {
+    setSelectedDays(prev => prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]);
+  }
+
   async function handleSave() {
     setSaving(true);
     setError('');
     try {
-      await onSave(dishName.trim() || null);
+      await onSave({
+        dishName: dishName.trim() || null,
+        recurring,
+        recurrenceDays: recurring ? selectedDays : null,
+        endDate: recurring ? (endDate || null) : null,
+      });
     } catch (err) {
       setError(err.message || 'Failed to save');
       setSaving(false);
@@ -167,6 +325,7 @@ function EditMealSheet({ visible, meal, col, onClose, onSave, onDelete }) {
               </TouchableOpacity>
             </View>
 
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <Text style={styles.fieldLabel}>Dish</Text>
             <TextInput
               style={styles.textInput}
@@ -177,7 +336,51 @@ function EditMealSheet({ visible, meal, col, onClose, onSave, onDelete }) {
               autoFocus
             />
 
+            <Text style={styles.fieldLabel}>Type</Text>
+            <View style={styles.toggleRow}>
+              <TouchableOpacity
+                style={[styles.toggleBtn, !recurring && styles.toggleBtnActive]}
+                onPress={() => setRecurring(false)}
+              >
+                <Text style={[styles.toggleBtnText, !recurring && styles.toggleBtnTextActive]}>One-off</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.toggleBtn, recurring && styles.toggleBtnActive]}
+                onPress={() => setRecurring(true)}
+              >
+                <Text style={[styles.toggleBtnText, recurring && styles.toggleBtnTextActive]}>Recurring</Text>
+              </TouchableOpacity>
+            </View>
+
+            {recurring && (
+              <>
+                <Text style={styles.fieldLabel}>Schedule</Text>
+                <View style={styles.daysRow}>
+                  <TouchableOpacity
+                    style={[styles.dayBtn, styles.dayBtnDaily, selectedDays.length === 0 && styles.dayBtnActive]}
+                    onPress={() => setSelectedDays([])}
+                  >
+                    <Text style={[styles.dayBtnText, selectedDays.length === 0 && styles.dayBtnTextActive]}>Daily</Text>
+                  </TouchableOpacity>
+                  {RECUR_WEEKDAYS.map(d => (
+                    <TouchableOpacity
+                      key={d.id}
+                      style={[styles.dayBtn, selectedDays.includes(d.id) && styles.dayBtnActive]}
+                      onPress={() => toggleDay(d.id)}
+                    >
+                      <Text style={[styles.dayBtnText, selectedDays.includes(d.id) && styles.dayBtnTextActive]}>{d.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={styles.fieldLabel}>End date <Text style={{ color: COLORS.textSecondary }}>(optional)</Text></Text>
+                <EndDatePicker value={endDate} onChange={setEndDate} />
+              </>
+            )}
+
             {!!error && <Text style={styles.errorText}>{error}</Text>}
+            <View style={{ height: 4 }} />
+            </ScrollView>
 
             <View style={styles.sheetActions}>
               {meal && (
@@ -235,23 +438,36 @@ export default function MealsTab() {
   function onRefresh() { setRefreshing(true); load(); }
 
   function mealFor(dateStr, col) {
-    return meals.find(m =>
-      m.date === dateStr && m.person === col.person && m.meal_type === col.mealType
-    );
+    return resolveMeal(meals, dateStr, col.person, col.mealType);
   }
 
   function openEdit(col, dateStr) {
     setEditing({ col, dateStr, meal: mealFor(dateStr, col) });
   }
 
-  async function handleSave(dishName) {
-    const saved = await upsertMeal({
-      date: editing.dateStr,
-      meal_type: editing.col.mealType,
-      person: editing.col.person,
-      dish_name: dishName,
-    });
-    dispatch({ type: 'upsert', meal: saved });
+  async function handleSave({ dishName, recurring, recurrenceDays, endDate }) {
+    const existing = editing.meal;
+
+    if (recurring) {
+      const recurrence_rule = recurrenceDays && recurrenceDays.length > 0 ? recurrenceDays.join(',') : 'daily';
+      let saved;
+      if (existing?.recurring) {
+        saved = await updateRecurringMeal(existing.id, { dish_name: dishName, recurrence_rule, end_date: endDate });
+      } else {
+        saved = await addRecurringMeal({ meal_type: editing.col.mealType, person: editing.col.person, dish_name: dishName, recurrence_rule, end_date: endDate });
+        if (existing) { await deleteMeal(existing.id).catch(() => {}); dispatch({ type: 'delete', id: existing.id }); }
+      }
+      dispatch({ type: 'upsert', meal: saved });
+    } else {
+      if (existing?.recurring) { await deleteMeal(existing.id).catch(() => {}); dispatch({ type: 'delete', id: existing.id }); }
+      const saved = await upsertMeal({
+        date: editing.dateStr,
+        meal_type: editing.col.mealType,
+        person: editing.col.person,
+        dish_name: dishName,
+      });
+      dispatch({ type: 'upsert', meal: saved });
+    }
     setEditing(null);
   }
 
@@ -340,7 +556,7 @@ export default function MealsTab() {
                   >
                     {meal?.dish_name ? (
                       <Text style={[styles.dishText, { color: col.color }]} numberOfLines={3}>
-                        {meal.dish_name}
+                        {meal.dish_name}{meal.recurring ? ' ↻' : ''}
                       </Text>
                     ) : (
                       <Text style={styles.emptyPlus}>–</Text>
@@ -497,6 +713,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
     paddingTop: 12,
+    maxHeight: '92%',
   },
   sheetHandle: {
     width: 40, height: 4, borderRadius: 2,
@@ -529,6 +746,106 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   errorText: { color: '#dc2626', fontFamily: FONTS.body, fontSize: 13, marginTop: 10 },
+  toggleRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  toggleBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  toggleBtnActive: {
+    backgroundColor: COLORS.family,
+    borderColor: COLORS.family,
+  },
+  toggleBtnText: {
+    fontFamily: FONTS.bodyMedium,
+    fontSize: 14,
+    color: COLORS.text,
+  },
+  toggleBtnTextActive: {
+    color: '#fff',
+  },
+  daysRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  dayBtn: {
+    width: 38,
+    height: 38,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayBtnDaily: {
+    width: 52,
+  },
+  dayBtnActive: {
+    backgroundColor: COLORS.family,
+    borderColor: COLORS.family,
+  },
+  dayBtnText: {
+    fontFamily: FONTS.body,
+    fontSize: 11,
+    color: COLORS.text,
+  },
+  dayBtnTextActive: {
+    color: '#fff',
+    fontFamily: FONTS.bodyMedium,
+  },
+  // ─── EndDatePicker ──
+  enddateField: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 12, backgroundColor: COLORS.background,
+  },
+  enddateFieldOpen: { borderColor: COLORS.family },
+  enddateValue: { fontFamily: FONTS.body, fontSize: 15, color: COLORS.textSecondary },
+  enddateValueSet: { color: COLORS.text, fontFamily: FONTS.bodyMedium },
+  enddateChevron: { fontSize: 11, color: COLORS.textSecondary },
+  calPanel: {
+    borderWidth: 1, borderColor: COLORS.border, borderTopWidth: 0,
+    borderBottomLeftRadius: 8, borderBottomRightRadius: 8,
+    paddingHorizontal: 10, paddingTop: 8, paddingBottom: 10,
+  },
+  calMonthRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 6,
+  },
+  calArrow: { fontFamily: FONTS.body, fontSize: 16, color: COLORS.alex, paddingHorizontal: 10 },
+  calMonthLabel: { fontFamily: FONTS.heading, fontSize: 11, letterSpacing: 0.5, color: COLORS.text },
+  calGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  calWeekday: {
+    width: '14.2857%',
+    fontFamily: FONTS.heading, fontSize: 10, letterSpacing: 0.5,
+    color: COLORS.textSecondary, textAlign: 'center', paddingBottom: 4,
+  },
+  calDayCell: { width: '14.2857%', alignItems: 'center', paddingVertical: 3 },
+  calDayCircle: {
+    width: 26, height: 26, borderRadius: 13,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  calDayToday: { backgroundColor: COLORS.timeIndicator },
+  calDaySelected: { backgroundColor: COLORS.family },
+  calDayText: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.text },
+  calDayOtherMonth: { color: COLORS.border },
+  calDayTextOnColor: { color: '#fff', fontFamily: FONTS.headingBold },
+  calFooter: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border,
+  },
+  calClear: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.family },
+  calClearDisabled: { color: COLORS.border },
+  calHint: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.textSecondary },
   sheetActions: {
     flexDirection: 'row',
     gap: 8,
