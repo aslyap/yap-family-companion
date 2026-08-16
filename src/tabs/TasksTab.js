@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, FONTS } from '../theme';
 import {
-  fetchTasks, addTask, deleteTask, toggleComplete,
+  fetchTasks, addTask, deleteTask, updateTask, toggleComplete,
   isTaskForDate, isCompleteForDate, todayStr, dueDateForView,
 } from '../services/tasksService';
 
@@ -251,7 +251,7 @@ function TaskItem({ task, viewDate, col, onToggle, onPress }) {
 
 // ─── TaskDetailSheet ──────────────────────────────────────────────────────────
 
-function TaskDetailSheet({ visible, task, col, viewDate, onClose, onDelete, onSkip }) {
+function TaskDetailSheet({ visible, task, col, viewDate, onClose, onDelete, onSkip, onEdit }) {
   const insets = useSafeAreaInsets();
   const [deleting, setDeleting] = useState(false);
 
@@ -272,13 +272,15 @@ function TaskDetailSheet({ visible, task, col, viewDate, onClose, onDelete, onSk
     onClose();
   }
 
+  const accentColor = col?.color || COLORS.text;
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable style={styles.backdrop} onPress={onClose} />
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           <View style={styles.sheetHandle} />
-          <Text style={[styles.detailTitle, { color: col?.color || COLORS.text }]} numberOfLines={2}>
+          <Text style={[styles.detailTitle, { color: accentColor }]} numberOfLines={2}>
             {task.title}
           </Text>
           {scheduleLabel && (
@@ -289,10 +291,18 @@ function TaskDetailSheet({ visible, task, col, viewDate, onClose, onDelete, onSk
               Deleting will remove all occurrences of this recurring task.
             </Text>
           )}
-          <View style={styles.sheetActions}>
-            <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-              <Text style={styles.cancelBtnText}>Cancel</Text>
-            </TouchableOpacity>
+          <View style={styles.detailActions}>
+            <View style={styles.detailActionRow}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.editBtn, { borderColor: accentColor }]}
+                onPress={() => onEdit(task)}
+              >
+                <Text style={[styles.editBtnText, { color: accentColor }]}>Edit</Text>
+              </TouchableOpacity>
+            </View>
             {task.recurring && (
               <TouchableOpacity style={styles.skipBtn} onPress={handleSkip}>
                 <Text style={styles.skipBtnText}>Skip Today</Text>
@@ -314,8 +324,9 @@ function TaskDetailSheet({ visible, task, col, viewDate, onClose, onDelete, onSk
 
 // ─── AddTaskSheet ─────────────────────────────────────────────────────────────
 
-function AddTaskSheet({ visible, defaultDate, onClose, onSave }) {
+function AddTaskSheet({ visible, defaultDate, task, onClose, onSave }) {
   const insets = useSafeAreaInsets();
+  const isEdit = !!task;
   const [form, setForm] = useState({
     assigned_to: 'maddie',
     title: '',
@@ -330,12 +341,25 @@ function AddTaskSheet({ visible, defaultDate, onClose, onSave }) {
 
   useEffect(() => {
     if (visible) {
-      setForm({ assigned_to: 'maddie', title: '', points: '0', recurring: false, one_off_date: defaultDate, end_date: '' });
-      setSelectedDays([]);
+      if (task) {
+        const rule = (task.recurrence_rule || '').trim().toLowerCase();
+        setForm({
+          assigned_to:  task.assigned_to,
+          title:        task.title || '',
+          points:       String(task.points ?? 0),
+          recurring:    !!task.recurring,
+          one_off_date: task.one_off_date || defaultDate,
+          end_date:     task.end_date || '',
+        });
+        setSelectedDays(rule && rule !== 'daily' ? rule.split(',').map(d => d.trim()) : []);
+      } else {
+        setForm({ assigned_to: 'maddie', title: '', points: '0', recurring: false, one_off_date: defaultDate, end_date: '' });
+        setSelectedDays([]);
+      }
       setError('');
       setSaving(false);
     }
-  }, [visible, defaultDate]);
+  }, [visible, defaultDate, task]);
 
   function set(field, value) {
     setForm(prev => ({ ...prev, [field]: value }));
@@ -377,7 +401,7 @@ function AddTaskSheet({ visible, defaultDate, onClose, onSave }) {
           <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Add Task</Text>
+              <Text style={styles.sheetTitle}>{isEdit ? 'Edit Task' : 'Add Task'}</Text>
               <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
                 <Text style={styles.closeBtnText}>×</Text>
               </TouchableOpacity>
@@ -493,7 +517,7 @@ function AddTaskSheet({ visible, defaultDate, onClose, onSave }) {
                 onPress={handleSave}
                 disabled={saving}
               >
-                <Text style={styles.saveBtnText}>{saving ? 'Saving…' : 'Add Task'}</Text>
+                <Text style={styles.saveBtnText}>{saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Task'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -514,6 +538,7 @@ export default function TasksTab() {
   const [showSheet, setShowSheet] = useState(false);
   const [detailTask, setDetailTask] = useState(null);
   const [detailCol,  setDetailCol]  = useState(null);
+  const [editingTask, setEditingTask] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -570,6 +595,12 @@ export default function TasksTab() {
   async function handleDelete(task) {
     dispatch({ type: 'delete', id: task.id });
     try { await deleteTask(task.id); } catch {}
+  }
+
+  async function handleUpdate(formData) {
+    const saved = await updateTask(editingTask.id, formData);
+    dispatch({ type: 'update', task: saved });
+    setEditingTask(null);
   }
 
   async function handleSkipToday(task) {
@@ -658,10 +689,11 @@ export default function TasksTab() {
       </TouchableOpacity>
 
       <AddTaskSheet
-        visible={showSheet}
+        visible={showSheet || !!editingTask}
         defaultDate={viewDate}
-        onClose={() => setShowSheet(false)}
-        onSave={handleAdd}
+        task={editingTask}
+        onClose={() => { setShowSheet(false); setEditingTask(null); }}
+        onSave={editingTask ? handleUpdate : handleAdd}
       />
 
       <TaskDetailSheet
@@ -672,6 +704,7 @@ export default function TasksTab() {
         onClose={() => setDetailTask(null)}
         onDelete={handleDelete}
         onSkip={handleSkipToday}
+        onEdit={t => { setDetailTask(null); setEditingTask(t); }}
       />
     </View>
   );
@@ -1100,5 +1133,28 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodyMedium,
     fontSize: 14,
     color: COLORS.textSecondary,
+  },
+  detailActions: {
+    gap: 10,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  detailActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  editBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+  },
+  editBtnText: {
+    fontFamily: FONTS.bodyMedium,
+    fontSize: 15,
   },
 });
