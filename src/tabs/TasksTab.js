@@ -9,7 +9,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, FONTS } from '../theme';
 import {
   fetchTasks, addTask, deleteTask, toggleComplete,
-  isTaskForDate, isCompleteForDate, todayStr,
+  isTaskForDate, isCompleteForDate, todayStr, dueDateForView,
 } from '../services/tasksService';
 
 // ─── constants ───────────────────────────────────────────────────────────────
@@ -215,7 +215,9 @@ function tasksReducer(state, action) {
 // ─── TaskItem ─────────────────────────────────────────────────────────────────
 
 function TaskItem({ task, viewDate, col, onToggle, onPress }) {
-  const done = isCompleteForDate(task, viewDate);
+  const dueDate = dueDateForView(task, viewDate);
+  const done = isCompleteForDate(task, dueDate);
+  const overdue = dueDate !== viewDate;
   return (
     <TouchableOpacity
       style={styles.taskItem}
@@ -235,7 +237,7 @@ function TaskItem({ task, viewDate, col, onToggle, onPress }) {
 
       <View style={styles.taskBody}>
         <Text style={[styles.taskTitle, { color: done ? COLORS.textSecondary : col.color }, done && styles.taskDone]} numberOfLines={3}>
-          {task.title}{task.recurring ? ' ↻' : ''}
+          {task.title}{task.recurring ? ' ↻' : ''}{overdue ? ' · overdue' : ''}
         </Text>
         {col.key !== 'marj' && task.points > 0 && (
           <View style={[styles.ptsBadge, { borderColor: col.color }]}>
@@ -545,13 +547,14 @@ export default function TasksTab() {
   }
 
   async function handleToggle(task) {
+    const dueDate = dueDateForView(task, viewDate);
     const optimistic = {
       ...task,
-      completion_status: { ...task.completion_status, [viewDate]: !isCompleteForDate(task, viewDate) },
+      completion_status: { ...task.completion_status, [dueDate]: !isCompleteForDate(task, dueDate) },
     };
     dispatch({ type: 'update', task: optimistic });
     try {
-      const saved = await toggleComplete(task, viewDate);
+      const saved = await toggleComplete(task, dueDate);
       dispatch({ type: 'update', task: saved });
     } catch {
       dispatch({ type: 'update', task });
@@ -570,13 +573,14 @@ export default function TasksTab() {
   }
 
   async function handleSkipToday(task) {
+    const dueDate = dueDateForView(task, viewDate);
     const optimistic = {
       ...task,
-      completion_status: { ...task.completion_status, [viewDate]: true },
+      completion_status: { ...task.completion_status, [dueDate]: true },
     };
     dispatch({ type: 'update', task: optimistic });
     try {
-      const saved = await toggleComplete(task, viewDate);
+      const saved = await toggleComplete(task, dueDate);
       dispatch({ type: 'update', task: saved });
     } catch {
       dispatch({ type: 'update', task });
