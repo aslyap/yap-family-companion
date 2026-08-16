@@ -580,13 +580,81 @@ function DayView({ events, dateStr, onEventPress, onRefresh, refreshing }) {
 
 // ─── TimePicker ───────────────────────────────────────────────────────────────
 
+// Custom-time entry: separate hour/minute/AM-PM fields rather than a single
+// free-text box, so there's no ambiguity between 12-hour and 24-hour input -
+// matches the 12-hour display the scroll list already uses.
+function CustomTimeEntry({ value, onSet }) {
+  const parsed = (() => {
+    const [h, m] = (value || '09:00').split(':').map(Number);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return { h12: String(h12), m: String(m).padStart(2, '0'), ampm };
+  })();
+  const [hourStr, setHourStr]   = useState(parsed.h12);
+  const [minStr, setMinStr]     = useState(parsed.m);
+  const [ampm, setAmpm]         = useState(parsed.ampm);
+
+  function submit() {
+    const h12 = parseInt(hourStr, 10);
+    const min = parseInt(minStr, 10);
+    if (!h12 || h12 < 1 || h12 > 12 || isNaN(min) || min < 0 || min > 59) return;
+    let h24 = h12 % 12;
+    if (ampm === 'PM') h24 += 12;
+    onSet(`${String(h24).padStart(2, '0')}:${String(min).padStart(2, '0')}`);
+  }
+
+  return (
+    <View style={styles.tpCustomWrap}>
+      <View style={styles.tpCustomRow}>
+        <TextInput
+          style={styles.tpCustomInput}
+          value={hourStr}
+          onChangeText={setHourStr}
+          keyboardType="number-pad"
+          maxLength={2}
+          placeholder="9"
+          placeholderTextColor={COLORS.textSecondary}
+        />
+        <Text style={styles.tpCustomColon}>:</Text>
+        <TextInput
+          style={styles.tpCustomInput}
+          value={minStr}
+          onChangeText={setMinStr}
+          keyboardType="number-pad"
+          maxLength={2}
+          placeholder="45"
+          placeholderTextColor={COLORS.textSecondary}
+        />
+        <View style={styles.tpAmPmCol}>
+          <TouchableOpacity
+            style={[styles.tpAmPmBtn, ampm === 'AM' && styles.tpAmPmBtnActive]}
+            onPress={() => setAmpm('AM')}
+          >
+            <Text style={[styles.tpAmPmText, ampm === 'AM' && styles.tpAmPmTextActive]}>AM</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tpAmPmBtn, ampm === 'PM' && styles.tpAmPmBtnActive]}
+            onPress={() => setAmpm('PM')}
+          >
+            <Text style={[styles.tpAmPmText, ampm === 'PM' && styles.tpAmPmTextActive]}>PM</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+      <TouchableOpacity style={styles.tpCustomSetBtn} onPress={submit} activeOpacity={0.75}>
+        <Text style={styles.tpCustomSetText}>Set time</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 function TimePicker({ value, onChange }) {
   const [open, setOpen]   = useState(false);
+  const [custom, setCustom] = useState(false);
   const flatRef           = useRef(null);
   const idx               = TIME_SLOTS.indexOf(value);
 
   useEffect(() => {
-    if (open && idx >= 0) {
+    if (open && !custom && idx >= 0) {
       const t = setTimeout(() => {
         try {
           flatRef.current?.scrollToIndex({ index: Math.max(0, idx - 2), animated: false });
@@ -594,11 +662,11 @@ function TimePicker({ value, onChange }) {
       }, 80);
       return () => clearTimeout(t);
     }
-  }, [open]);
+  }, [open, custom]);
 
   return (
     <>
-      <TouchableOpacity style={styles.tpBtn} onPress={() => setOpen(true)} activeOpacity={0.75}>
+      <TouchableOpacity style={styles.tpBtn} onPress={() => { setCustom(false); setOpen(true); }} activeOpacity={0.75}>
         <Text style={styles.tpBtnText}>{display12(value)}</Text>
         <Text style={styles.tpChevron}>▾</Text>
       </TouchableOpacity>
@@ -606,24 +674,31 @@ function TimePicker({ value, onChange }) {
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={styles.tpOverlay} onPress={() => setOpen(false)}>
           <View style={styles.tpDropdown}>
-            <FlatList
-              ref={flatRef}
-              data={TIME_SLOTS}
-              keyExtractor={t => t}
-              showsVerticalScrollIndicator={true}
-              getItemLayout={(_, i) => ({ length: 44, offset: 44 * i, index: i })}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.tpItem, item === value && styles.tpItemSelected]}
-                  onPress={() => { onChange(item); setOpen(false); }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.tpItemText, item === value && styles.tpItemTextSelected]}>
-                    {display12(item)}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
+            {custom ? (
+              <CustomTimeEntry value={value} onSet={t => { onChange(t); setOpen(false); }} />
+            ) : (
+              <FlatList
+                ref={flatRef}
+                data={TIME_SLOTS}
+                keyExtractor={t => t}
+                showsVerticalScrollIndicator={true}
+                getItemLayout={(_, i) => ({ length: 44, offset: 44 * i, index: i })}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[styles.tpItem, item === value && styles.tpItemSelected]}
+                    onPress={() => { onChange(item); setOpen(false); }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.tpItemText, item === value && styles.tpItemTextSelected]}>
+                      {display12(item)}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+            <TouchableOpacity style={styles.tpCustomToggle} onPress={() => setCustom(c => !c)} activeOpacity={0.7}>
+              <Text style={styles.tpCustomToggleText}>{custom ? '‹ Choose from list' : 'Enter a custom time…'}</Text>
+            </TouchableOpacity>
           </View>
         </Pressable>
       </Modal>
@@ -865,7 +940,7 @@ function EventSheet({ visible, mode, event, defaultDate, onClose, onSaved, onDel
     const [sh, sm] = newStart.split(':').map(Number);
     const [eh, em] = endTime.split(':').map(Number);
     if (eh * 60 + em <= sh * 60 + sm) {
-      const newEndMins = Math.min(sh * 60 + sm + 60, 23 * 60 + 30);
+      const newEndMins = Math.min(sh * 60 + sm + 60, 23 * 60 + 59);
       setEndTime(`${pad(Math.floor(newEndMins / 60))}:${pad(newEndMins % 60)}`);
     }
   }
@@ -1556,7 +1631,7 @@ const styles = StyleSheet.create({
   },
   tpDropdown: {
     backgroundColor: COLORS.background, borderRadius: 10,
-    width: 200, maxHeight: 286, overflow: 'hidden',
+    width: 230, maxHeight: 286, overflow: 'hidden',
     borderWidth: 1, borderColor: COLORS.border,
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15, shadowRadius: 8, elevation: 8,
@@ -1565,6 +1640,32 @@ const styles = StyleSheet.create({
   tpItemSelected: { backgroundColor: COLORS.adrianLight || '#E8EEF4' },
   tpItemText: { fontFamily: FONTS.body, fontSize: 15, color: COLORS.text },
   tpItemTextSelected: { fontFamily: FONTS.headingBold, color: COLORS.adrian },
+  tpCustomToggle: {
+    paddingVertical: 12, alignItems: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border,
+  },
+  tpCustomToggleText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.family },
+  tpCustomWrap: { padding: 16 },
+  tpCustomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  tpCustomInput: {
+    width: 48, height: 44, borderWidth: 1, borderColor: COLORS.border, borderRadius: 8,
+    fontFamily: FONTS.bodyMedium, fontSize: 18, color: COLORS.text, textAlign: 'center',
+    backgroundColor: COLORS.surface,
+  },
+  tpCustomColon: { fontFamily: FONTS.bodyMedium, fontSize: 18, color: COLORS.text },
+  tpAmPmCol: { marginLeft: 8, gap: 4 },
+  tpAmPmBtn: {
+    width: 44, paddingVertical: 6, borderWidth: 1, borderColor: COLORS.border, borderRadius: 6,
+    alignItems: 'center',
+  },
+  tpAmPmBtnActive: { backgroundColor: COLORS.family, borderColor: COLORS.family },
+  tpAmPmText: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.text },
+  tpAmPmTextActive: { color: '#fff' },
+  tpCustomSetBtn: {
+    marginTop: 14, backgroundColor: COLORS.family, borderRadius: 8,
+    paddingVertical: 10, alignItems: 'center',
+  },
+  tpCustomSetText: { fontFamily: FONTS.bodyMedium, fontSize: 14, color: '#fff' },
 
   // event sheet
   sheetHeader: {
