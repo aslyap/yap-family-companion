@@ -1,5 +1,32 @@
 # yap-family-companion — Session Handoff
 
+## Session 38 (2026-08-20 to 2026-08-22) — task editing, foldable layout fix — full write-up lives in yap-family-home this time
+
+Full detail in `yap-family-home/TODO.md` (session 38) — most of this
+session's work landed there (chat assistant fixes, and a multi-day music
+playback investigation that ended in a real root cause: `yt-dlp` was
+defaulting to a YouTube client context, `ANDROID_VR`, that's currently
+being blocked far more aggressively than `ANDROID` — forcing the right
+client fixed it, verified 11/11 on real videos including tracks that had
+failed repeatedly). Summary of what touched this repo specifically:
+
+1. **Task editing** (`8ffa73d`): tapping a task only ever offered Skip
+   Today / Delete. Added an Edit button opening the existing Add-Task form
+   pre-filled, wired to a new `updateTask()` Supabase call.
+2. **Foldable layout bug** (`0a0802e`): on Kath's Oppo Find N5 opened to
+   its wide inner screen, Calendar Month view crammed 14 days per row
+   instead of 7, Week view's columns were too narrow. Root cause:
+   `MONTH_CELL_W`/`WEEK_COL_W`/`DAY_COL_W` were computed once from
+   `Dimensions.get('window')` at module load, never updating on
+   fold/unfold. Switched to `useWindowDimensions()`.
+3. Android + iOS builds dispatched (`show_debug=false`), confirmed green
+   before moving on — this is the build to install for the foldable fix.
+
+Standing rules apply: quiet hours 21:00-07:00 SGT, concrete repro before
+assuming a fix, ask directly rather than guess, keep tracking tables
+current. See yap-family-home's session 38 entry for the outstanding-items
+table and the full music/chat investigation writeup.
+
 ## Session 37 progress (2026-08-16) — dashboard cleanup, calendar/meals/tasks features, deep soundbar investigation (unsolved), chat model migrated off a deprecated Groq model
 
 Picked up session 36 as written, all three repos confirmed matching, no drift
