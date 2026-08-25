@@ -167,7 +167,7 @@ const WELCOME = 'Hi! I can help you manage the family calendar, tasks and meals.
 
 // ─── ConfirmCard ──────────────────────────────────────────────────────────────
 
-function ConfirmCard({ msg, onConfirm, onCancel }) {
+function ConfirmCard({ msg, onConfirm, onCancel, busy }) {
   const col = toolColor(msg.toolName);
   const done = msg.status !== 'pending';
 
@@ -175,7 +175,9 @@ function ConfirmCard({ msg, onConfirm, onCancel }) {
     return (
       <View style={[styles.cardDone, { borderColor: col }]}>
         <Text style={[styles.cardDoneLabel, { color: col }]}>{toolLabel(msg.toolName)}</Text>
-        <Text style={styles.cardDoneStatus}>{msg.status === 'confirmed' ? '✓ Done' : '✗ Cancelled'}</Text>
+        <Text style={styles.cardDoneStatus}>
+          {msg.status === 'confirmed' ? '✓ Done' : msg.status === 'failed' ? '⚠ Failed' : '✗ Cancelled'}
+        </Text>
       </View>
     );
   }
@@ -188,15 +190,17 @@ function ConfirmCard({ msg, onConfirm, onCancel }) {
       ))}
       <View style={styles.cardBtns}>
         <TouchableOpacity
-          style={[styles.btnConfirm, { backgroundColor: col }]}
+          style={[styles.btnConfirm, { backgroundColor: col }, busy && styles.sendDisabled]}
           onPress={() => onConfirm(msg)}
+          disabled={busy}
           activeOpacity={0.8}
         >
           <Text style={styles.btnConfirmTxt}>CONFIRM</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.btnCancel, { borderColor: col }]}
+          style={[styles.btnCancel, { borderColor: col }, busy && styles.sendDisabled]}
           onPress={() => onCancel(msg)}
+          disabled={busy}
           activeOpacity={0.8}
         >
           <Text style={[styles.btnCancelTxt, { color: col }]}>CANCEL</Text>
@@ -329,17 +333,29 @@ export default function ChatTab() {
   }
 
   async function confirm(card) {
-    patchCard(card.id, 'confirmed');
     setBusy(true);
     try {
       const result = await runTool(card.toolName, card.input);
+      patchCard(card.id, 'confirmed');
       append({ id: uid(), type: 'bot', text: `Done! ${result}.` });
       setHistory(prev => [
         ...prev,
         { role: 'user', content: [{ type: 'tool_result', tool_use_id: card.toolUseId, content: result }] },
       ]);
     } catch (e) {
+      // Previously left the card patched 'confirmed' (misreported as done) and
+      // appended no tool_result at all — the tool_use from this turn stayed
+      // dangling in history forever, so every later message in the conversation
+      // replayed an unpaired function call and both Groq and Gemini rejected the
+      // whole request (harmony "Tools should have a name!" / Gemini "function
+      // response must immediately follow function call"). Recovering only worked
+      // by force-closing the app to drop the in-memory history.
+      patchCard(card.id, 'failed');
       append({ id: uid(), type: 'bot', text: `Sorry, that didn't work: ${e.message}` });
+      setHistory(prev => [
+        ...prev,
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: card.toolUseId, content: `Failed: ${e.message}` }] },
+      ]);
     } finally {
       setBusy(false);
     }
@@ -392,7 +408,7 @@ export default function ChatTab() {
             </View>
           );
           if (m.type === 'card') return (
-            <ConfirmCard key={m.id} msg={m} onConfirm={confirm} onCancel={cancel} />
+            <ConfirmCard key={m.id} msg={m} onConfirm={confirm} onCancel={cancel} busy={busy} />
           );
           return null;
         })}
