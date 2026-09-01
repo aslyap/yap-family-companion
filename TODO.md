@@ -1,5 +1,28 @@
 # yap-family-companion — Session Handoff
 
+## Session 39 (2026-08-25) — confirm() crash fix, from a real crash report — full write-up lives in yap-family-home this time
+
+Full detail in `yap-family-home/TODO.md` (session 39). Summary of what
+touched this repo specifically:
+
+1. **`confirm()` left failed actions poisoning chat history** (`4a99a09`):
+   a user-reported crash (Groq + Gemini both rejecting a request) traced
+   to `ChatTab.js`'s `confirm()` — it marked the action card `'confirmed'`
+   before knowing whether `runTool()` would succeed, and appended no
+   `tool_result` on failure, leaving that turn's tool call dangling in
+   history forever (only recoverable by force-closing the app). Now the
+   card is only marked done after success, a distinct `'failed'` status
+   is shown on error, the `tool_result` is appended either way, and the
+   CONFIRM/CANCEL buttons are disabled while busy.
+2. Android + iOS builds dispatched (`show_debug=false`), confirmed green —
+   this is the build to install for the crash fix.
+
+Standing rules apply: quiet hours 21:00-07:00 SGT, concrete repro before
+assuming a fix, ask directly rather than guess, keep tracking tables
+current. See yap-family-home's session 39 entry for the outstanding-items
+table (including a second, related chat fix in that repo that still needs
+`flyctl deploy`).
+
 ## Session 38 (2026-08-20 to 2026-08-22) — task editing, foldable layout fix — full write-up lives in yap-family-home this time
 
 Full detail in `yap-family-home/TODO.md` (session 38) — most of this
