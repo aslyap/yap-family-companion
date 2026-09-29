@@ -9,7 +9,7 @@ import { useIdentity } from '../contexts/IdentityContext';
 import { COLORS, FONTS, getAccentColor } from '../theme';
 import { BACKEND_URL } from '../config';
 import { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } from '../services/calendarWriteService';
-import { addTask, deleteTask } from '../services/tasksService';
+import { addTask, deleteTask, updateTask } from '../services/tasksService';
 import { upsertMeal } from '../services/mealsService';
 import { supabase } from '../services/supabaseClient';
 
@@ -71,10 +71,21 @@ function toolDetail(name, inp) {
         `For: ${cap(inp.assignedTo)}${inp.points ? `  ·  ${inp.points} pts` : ''}`,
         inp.recurring ? `Repeats: ${inp.recurrenceRule || 'daily'}` : (inp.oneOffDate || null),
       ].filter(Boolean);
+    case 'edit_task':
+      return [
+        inp.taskTitle,
+        inp.title ? `New title: ${inp.title}` : null,
+        inp.assignedTo ? `For: ${cap(inp.assignedTo)}` : null,
+        inp.points != null ? `Points: ${inp.points}` : null,
+        inp.recurring === false ? `One-off${inp.oneOffDate ? `: ${inp.oneOffDate}` : ''}` : null,
+        inp.recurrenceRule ? `Repeats: ${inp.recurrenceRule}` : null,
+        inp.recurring !== false && inp.oneOffDate ? `Date: ${inp.oneOffDate}` : null,
+        inp.endDate ? `Until: ${inp.endDate}` : null,
+      ].filter(Boolean);
     case 'complete_task':
-      return [`Date: ${inp.dateStr}`];
+      return [inp.taskTitle, `Date: ${inp.dateStr}`].filter(Boolean);
     case 'delete_task':
-      return [`Task: ${String(inp.taskId).slice(0, 8)}…`];
+      return [inp.taskTitle || `Task: ${String(inp.taskId).slice(0, 8)}…`];
     case 'set_meal':
       return [
         inp.dishName,
@@ -131,6 +142,22 @@ async function runTool(name, inp) {
         one_off_date: inp.oneOffDate || null,
       });
       return 'Task added';
+
+    case 'edit_task': {
+      // Only send fields the model actually set, so an edit of the days doesn't
+      // blank the title/points. Switching to recurring clears one_off_date and
+      // vice versa, matching how the Add Task sheet stores each kind.
+      const updates = {};
+      if (inp.title) updates.title = inp.title;
+      if (inp.assignedTo) updates.assigned_to = inp.assignedTo;
+      if (inp.points != null) updates.points = inp.points;
+      if (inp.recurrenceRule) { updates.recurring = true; updates.recurrence_rule = inp.recurrenceRule; updates.one_off_date = null; }
+      if (inp.recurring === false) { updates.recurring = false; updates.recurrence_rule = null; }
+      if (inp.oneOffDate) updates.one_off_date = inp.oneOffDate;
+      if (inp.endDate) updates.end_date = inp.endDate;
+      await updateTask(inp.taskId, updates);
+      return 'Task updated';
+    }
 
     case 'complete_task': {
       const { data } = await supabase.from('tasks').select('completion_status').eq('id', inp.taskId).single();
