@@ -43,6 +43,11 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        # The default package list includes the long-deprecated 'tools', which the
+        # runner's cmdline-tools 16.0 sdkmanager no longer finds (build failed
+        # 2026-09-29 with "Failed to find package 'tools'").
+        with:
+          packages: platform-tools
 
       - name: Install NDK
         run: sdkmanager "ndk;27.1.12297006" --sdk_root=$ANDROID_SDK_ROOT
